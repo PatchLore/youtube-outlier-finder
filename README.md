@@ -1,36 +1,108 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+YouTube Outlier Finder
 
-## Getting Started
+Find YouTube videos that massively outperform their audience size — so you can spot ideas that are breaking out before they go mainstream.
 
-First, run the development server:
+Most tools show what’s popular.
+Outlier Finder shows what worked — even without a big audience.
 
-```bash
+What this app does
+
+Searches YouTube by niche or format (e.g. gaming horror, faceless youtube)
+
+Identifies outlier videos using a virality multiplier (views ÷ subscribers)
+
+Filters out noise from large channels
+
+Surfaces recent breakout signals, not stale “top of all time” results
+
+Built for creators who want to be early, not lucky.
+
+Tech stack
+
+Next.js (App Router)
+
+TypeScript
+
+Tailwind CSS
+
+Clerk (authentication)
+
+YouTube Data API v3
+
+Getting started (local development)
+1. Install dependencies
+npm install
+
+2. Environment variables
+
+Create a .env.local file in the project root:
+
+# Clerk authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+CLERK_SECRET_KEY=your_clerk_secret_key
+
+# YouTube Data API
+YOUTUBE_API_KEY=your_youtube_api_key
+
+
+⚠️ Never commit real API keys.
+.env.local is gitignored by default.
+
+3. Run the dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Open:
+http://localhost:3000
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Project structure (high level)
+app/
+  api/            # API routes (YouTube search, outlier logic)
+  components/     # UI components
+  pricing/        # Pricing page
+lib/
+  outlier.ts      # Core virality & outlier calculations
+middleware.ts     # Clerk middleware
 
-## Learn More
+Free vs Pro (current direction)
 
-To learn more about Next.js, take a look at the following resources:
+Free
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Unlimited searches
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Top 5 outliers per search
 
-## Deploy on Vercel
+Confidence tiers & plain-English explanations
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Pro
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+All outlier results
+
+Subscriber cap & view floor filters
+
+Sorting by multiplier or views
+
+Weekly personalized outlier digest
+
+Alerts for new breakouts in saved niches
+
+(Stripe billing coming next.)
+
+Related docs
+
+MONETIZATION_ROADMAP.md
+
+PAID_TIER_FEATURES.md
+
+SUBSCRIBER_SCALE_STRATEGY.md
+
+These contain deeper product and pricing thinking.
+
+Status
+
+Actively in development.
+Auth is being finalised, followed by billing and Pro gating.
+
+License
+
+Private / proprietary (for now).
