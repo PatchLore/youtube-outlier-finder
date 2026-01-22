@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { calculateViralityMultiplier, isOutlierVideo } from "@/lib/outlier";
+import { calculateViralityMultiplier, isOutlierVideo, type OutlierOptions } from "@/lib/outlier";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -169,12 +169,25 @@ export async function GET(req: Request) {
       }
     }
 
+    // Parse optional freshness/velocity options from query params
+    const maxDaysOld = url.searchParams.get("maxDaysOld");
+    const useVelocity = url.searchParams.get("useVelocity") === "true";
+    
+    const outlierOptions: OutlierOptions | undefined = 
+      maxDaysOld || useVelocity
+        ? {
+            maxDaysOld: maxDaysOld ? Number(maxDaysOld) : undefined,
+            useVelocityWeighting: useVelocity,
+          }
+        : undefined;
+
     // Combine video and channel data, calculate multipliers, filter outliers
     const results = (videoData.items || [])
       .map((video: any) => {
         const channelId = video?.snippet?.channelId;
         const views = Number(video?.statistics?.viewCount || 0);
         const subscribers = channelMap[channelId] || 0;
+        const publishedAt = video?.snippet?.publishedAt;
         const multiplier = calculateViralityMultiplier(views, subscribers);
 
         return {
@@ -185,7 +198,7 @@ export async function GET(req: Request) {
           views,
           subscribers,
           multiplier,
-          outlier: isOutlierVideo(views, subscribers),
+          outlier: isOutlierVideo(views, subscribers, publishedAt, outlierOptions),
         };
       })
       .filter((v: any) => v.outlier);
