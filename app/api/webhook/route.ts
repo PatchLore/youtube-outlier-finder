@@ -2,12 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { clerkClient } from "@clerk/nextjs/server";
 
-// Initialize Stripe with secret key
-// Using latest API version for production compatibility
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2025-12-15.clover",
-});
-
 // CRITICAL: Must use Node.js runtime for Stripe webhook signature verification
 // Edge runtime does not support the required crypto operations
 export const runtime = "nodejs";
@@ -30,6 +24,11 @@ export const dynamic = "force-dynamic";
  * @returns JSON response with status 200 on success, error response on failure
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // Initialize Stripe client inside handler to prevent build-time execution
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+    apiVersion: "2025-12-15.clover",
+  });
+
   // Validate webhook secret configuration
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   
