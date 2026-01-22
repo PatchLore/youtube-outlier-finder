@@ -565,20 +565,6 @@ export function HomeClient() {
           </p>
         )}
 
-        {areFiltersActive && hasVisibleResults && (
-          <div className="max-w-3xl mx-auto mb-4 p-3 bg-neutral-900/50 border border-neutral-800 rounded-lg text-xs text-neutral-400 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <p>
-              Growth users can save searches and get weekly outlier digests by email.
-            </p>
-            <button
-              type="button"
-              disabled
-              className="shrink-0 rounded-md bg-neutral-800 border border-neutral-700 text-xs font-medium px-3 py-1.5 hover:bg-neutral-750 disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
-            >
-              Upgrade to Growth
-            </button>
-          </div>
-        )}
 
         {hasVisibleResults && (
           <>
