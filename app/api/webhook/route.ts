@@ -119,14 +119,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Handle only the checkout.session.completed event
-  // 
-  // WHY ONLY ONE EVENT: Stripe sends many event types (payment_intent.succeeded,
-  // customer.subscription.created, etc.). We only care about checkout.session.completed
-  // because that's when the user has successfully paid and we should grant Pro access.
-  // 
-  // Other events are logged but ignored to keep the webhook handler focused and simple.
-  if (event.type !== "checkout.session.completed") {
+  // Handle checkout.session.completed and customer.subscription.deleted events
+  if (event.type === "checkout.session.completed") {
+    // Handle checkout completion (existing logic)
+    return handleCheckoutCompleted(event, stripe);
+  } else if (event.type === "customer.subscription.deleted") {
+    // Handle subscription cancellation
+    return handleSubscriptionDeleted(event);
+  } else {
+    // Other events are logged but ignored
     console.log(`[Webhook] Received unhandled event type: ${event.type} (id: ${event.id})`);
     // Return 200 to acknowledge receipt, even if we don't process it
     // This prevents Stripe from retrying unhandled events
@@ -136,8 +137,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       message: "Event received but not processed"
     });
   }
+}
 
-  // Process checkout.session.completed event
+async function handleCheckoutCompleted(event: Stripe.Event, stripe: Stripe) {
+
   const session = event.data.object as Stripe.Checkout.Session;
   
   if (!session) {
@@ -148,35 +151,77 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Extract clerkUserId from session metadata
-  // We use metadata.clerkUserId which is set in the checkout API route
-  const clerkUserId = session.metadata?.clerkUserId;
+  // Extract clerkUserId from client_reference_id
+  // This is set in the checkout API route and is the recommended way to pass user identifiers
+  const clerkUserId = session.client_reference_id;
   
   if (!clerkUserId || typeof clerkUserId !== "string") {
     console.error(
-      "[Webhook] No clerkUserId found in session metadata",
+      "[Webhook] No client_reference_id found in session",
       { 
         session_id: session.id,
-        metadata: session.metadata,
         client_reference_id: session.client_reference_id
       }
     );
     return NextResponse.json(
-      { error: "Missing clerkUserId in metadata" },
+      { error: "Missing client_reference_id in session" },
+      { status: 400 }
+    );
+  }
+
+  // Get Stripe customer ID from the session
+  // session.customer can be a string (customer ID) or a Customer object
+  const stripeCustomerId = typeof session.customer === "string" 
+    ? session.customer 
+    : session.customer?.id;
+  
+  if (!stripeCustomerId || typeof stripeCustomerId !== "string") {
+    console.error(
+      "[Webhook] No customer ID found in session",
+      { 
+        session_id: session.id,
+        customer: session.customer
+      }
+    );
+    return NextResponse.json(
+      { error: "Missing customer ID in session" },
       { status: 400 }
     );
   }
 
   // Update the Clerk user's publicMetadata to grant Pro access
+  // This operation is idempotent - safe to call multiple times
   try {
     const client = await clerkClient();
-    await client.users.updateUser(clerkUserId, {
-      publicMetadata: {
-        plan: "pro",
-      },
-    });
     
-    console.log(`[Webhook] ✅ Successfully granted Pro access to user: ${clerkUserId} (session: ${session.id})`);
+    // Get current user to check existing metadata
+    const currentUser = await client.users.getUser(clerkUserId);
+    const currentPlan = currentUser.publicMetadata?.plan;
+    const currentStripeCustomerId = currentUser.publicMetadata?.stripeCustomerId;
+    
+    // Prepare updated metadata
+    const updatedMetadata: Record<string, unknown> = {
+      ...currentUser.publicMetadata,
+      plan: "pro",
+      stripeCustomerId: stripeCustomerId,
+    };
+    
+    // Only update if metadata has changed (idempotent check)
+    const needsUpdate = currentPlan !== "pro" || currentStripeCustomerId !== stripeCustomerId;
+    
+    if (needsUpdate) {
+      await client.users.updateUser(clerkUserId, {
+        publicMetadata: updatedMetadata,
+      });
+      
+      if (currentPlan !== "pro") {
+        console.log(`[Webhook] ✅ Successfully granted Pro access to user: ${clerkUserId} (session: ${session.id}, customer: ${stripeCustomerId})`);
+      } else {
+        console.log(`[Webhook] ✅ Updated stripeCustomerId for Pro user: ${clerkUserId} (customer: ${stripeCustomerId})`);
+      }
+    } else {
+      console.log(`[Webhook] ✅ User already has Pro access with matching customer ID: ${clerkUserId} (session: ${session.id})`);
+    }
   } catch (clerkError: unknown) {
     const errorMessage = clerkError instanceof Error ? clerkError.message : "Unknown error";
     console.error("[Webhook] Failed to update Clerk user:", errorMessage, {
@@ -190,10 +235,130 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Return 200 to acknowledge receipt of the webhook
-  // This tells Stripe the webhook was processed successfully
   return NextResponse.json({ 
     received: true,
     event_type: event.type,
     session_id: session.id
+  });
+}
+
+async function handleSubscriptionDeleted(event: Stripe.Event) {
+  const subscription = event.data.object as Stripe.Subscription;
+  
+  if (!subscription) {
+    console.error("[Webhook] Missing subscription data in event", event.id);
+    return NextResponse.json(
+      { error: "Missing subscription data" },
+      { status: 400 }
+    );
+  }
+
+  // Get Stripe customer ID from the subscription
+  const stripeCustomerId = typeof subscription.customer === "string" 
+    ? subscription.customer 
+    : subscription.customer?.id;
+  
+  if (!stripeCustomerId || typeof stripeCustomerId !== "string") {
+    console.error(
+      "[Webhook] No customer ID found in subscription",
+      { 
+        subscription_id: subscription.id,
+        customer: subscription.customer
+      }
+    );
+    return NextResponse.json(
+      { error: "Missing customer ID in subscription" },
+      { status: 400 }
+    );
+  }
+
+  // Find the Clerk user with matching stripeCustomerId in publicMetadata
+  try {
+    const client = await clerkClient();
+    
+    // List users and find the one with matching stripeCustomerId
+    // Note: This requires iterating through users, which may be inefficient for large user bases
+    // In production, consider storing a reverse mapping or using Clerk's user search if available
+    let clerkUserId: string | null = null;
+    let pageOffset = 0;
+    const pageSize = 100;
+    
+    while (clerkUserId === null) {
+      const userList = await client.users.getUserList({ 
+        limit: pageSize,
+        offset: pageOffset 
+      });
+      
+      // Check each user for matching stripeCustomerId
+      for (const user of userList.data) {
+        if (user.publicMetadata?.stripeCustomerId === stripeCustomerId) {
+          clerkUserId = user.id;
+          break;
+        }
+      }
+      
+      // If we've checked all users or found a match, break
+      if (userList.data.length < pageSize || clerkUserId !== null) {
+        break;
+      }
+      
+      pageOffset += pageSize;
+    }
+    
+    if (!clerkUserId) {
+      console.error(
+        "[Webhook] No Clerk user found with stripeCustomerId",
+        { 
+          stripeCustomerId,
+          subscription_id: subscription.id
+        }
+      );
+      // Return 200 to acknowledge receipt even if user not found
+      // This prevents Stripe from retrying
+      return NextResponse.json({ 
+        received: true,
+        event_type: event.type,
+        message: "User not found, but event acknowledged"
+      });
+    }
+
+    // Get current user to check existing metadata (idempotent check)
+    const currentUser = await client.users.getUser(clerkUserId);
+    const currentPlan = currentUser.publicMetadata?.plan;
+    
+    // Only update if user currently has Pro access (idempotent check)
+    if (currentPlan === "pro") {
+      // Remove plan from metadata (downgrade to free)
+      // Keep stripeCustomerId for reference
+      const updatedMetadata: Record<string, unknown> = {
+        ...currentUser.publicMetadata,
+      };
+      delete updatedMetadata.plan;
+      
+      await client.users.updateUser(clerkUserId, {
+        publicMetadata: updatedMetadata,
+      });
+      
+      console.log(`[Webhook] ✅ Successfully downgraded user: ${clerkUserId} (subscription: ${subscription.id}, customer: ${stripeCustomerId})`);
+    } else {
+      console.log(`[Webhook] ✅ User already downgraded: ${clerkUserId} (subscription: ${subscription.id})`);
+    }
+  } catch (clerkError: unknown) {
+    const errorMessage = clerkError instanceof Error ? clerkError.message : "Unknown error";
+    console.error("[Webhook] Failed to downgrade Clerk user:", errorMessage, {
+      stripeCustomerId,
+      subscription_id: subscription.id
+    });
+    return NextResponse.json(
+      { error: "Failed to update user metadata" },
+      { status: 500 }
+    );
+  }
+
+  // Return 200 to acknowledge receipt of the webhook
+  return NextResponse.json({ 
+    received: true,
+    event_type: event.type,
+    subscription_id: subscription.id
   });
 }

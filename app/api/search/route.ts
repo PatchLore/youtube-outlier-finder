@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { calculateViralityMultiplier, isOutlierVideo } from "@/lib/outlier";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const FREE_RESULT_LIMIT = 5;
 
 export async function GET(req: Request) {
   try {
@@ -150,6 +153,22 @@ export async function GET(req: Request) {
       });
     }
 
+    // Check if user is Pro
+    const { userId } = await auth();
+    let isPro = false;
+    
+    if (userId) {
+      try {
+        const { clerkClient } = await import("@clerk/nextjs/server");
+        const client = await clerkClient();
+        const user = await client.users.getUser(userId);
+        isPro = user.publicMetadata?.plan === "pro";
+      } catch {
+        // If Clerk lookup fails, treat as free user
+        isPro = false;
+      }
+    }
+
     // Combine video and channel data, calculate multipliers, filter outliers
     const results = (videoData.items || [])
       .map((video: any) => {
@@ -171,7 +190,10 @@ export async function GET(req: Request) {
       })
       .filter((v: any) => v.outlier);
 
-    return NextResponse.json(results);
+    // Limit results for free users
+    const limitedResults = isPro ? results : results.slice(0, FREE_RESULT_LIMIT);
+
+    return NextResponse.json(limitedResults);
   } catch (err: any) {
     return NextResponse.json(
       {
