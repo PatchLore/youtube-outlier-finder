@@ -1,5 +1,6 @@
-// Force dynamic rendering to prevent Clerk from running during build-time prerender
+// Force dynamic rendering to prevent any build-time prerender
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default function NotFound() {
   return (
