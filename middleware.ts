@@ -6,7 +6,15 @@ const isPublicRoute = createRouteMatcher([
   "/api/search(.*)",
 ]);
 
+import { NextResponse } from "next/server";
+
 export default clerkMiddleware(async (auth, req) => {
+  // CRITICAL: Skip /api/search entirely to avoid any middleware interference
+  // This route needs to make outbound HTTP requests and should not be blocked
+  if (req.nextUrl.pathname.startsWith("/api/search")) {
+    return NextResponse.next(); // Explicit response - no Clerk processing for /api/search
+  }
+
   // Protect routes that are not public
   // Clerk's internal routes are automatically handled and not protected
   if (!isPublicRoute(req)) {
