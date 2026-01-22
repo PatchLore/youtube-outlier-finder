@@ -354,6 +354,62 @@ export function HomeClient() {
           </div>
         </div>
 
+        {/* How It Works Section */}
+        <div className="mb-16 sm:mb-20">
+          <h2 className="text-2xl sm:text-3xl font-bold text-center mb-10 sm:mb-12 text-white">
+            How it works
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+            {/* Step 1 */}
+            <div 
+              className="rounded-2xl p-6 text-center"
+              style={{
+                background: "rgba(255, 255, 255, 0.03)",
+                backdropFilter: "blur(20px)",
+                border: "1px solid rgba(255, 255, 255, 0.1)"
+              }}
+            >
+              <div className="text-2xl font-bold mb-3 text-white/90">1</div>
+              <h3 className="text-lg font-semibold mb-2 text-white">We scan YouTube</h3>
+              <p className="text-sm text-white/60 leading-relaxed">
+                We continuously monitor new videos across YouTube to find fresh content.
+              </p>
+            </div>
+
+            {/* Step 2 */}
+            <div 
+              className="rounded-2xl p-6 text-center"
+              style={{
+                background: "rgba(255, 255, 255, 0.03)",
+                backdropFilter: "blur(20px)",
+                border: "1px solid rgba(255, 255, 255, 0.1)"
+              }}
+            >
+              <div className="text-2xl font-bold mb-3 text-white/90">2</div>
+              <h3 className="text-lg font-semibold mb-2 text-white">We detect breakouts</h3>
+              <p className="text-sm text-white/60 leading-relaxed">
+                We compare views against channel size to spot videos that are outperforming expectations.
+              </p>
+            </div>
+
+            {/* Step 3 */}
+            <div 
+              className="rounded-2xl p-6 text-center"
+              style={{
+                background: "rgba(255, 255, 255, 0.03)",
+                backdropFilter: "blur(20px)",
+                border: "1px solid rgba(255, 255, 255, 0.1)"
+              }}
+            >
+              <div className="text-2xl font-bold mb-3 text-white/90">3</div>
+              <h3 className="text-lg font-semibold mb-2 text-white">We surface momentum</h3>
+              <p className="text-sm text-white/60 leading-relaxed">
+                We show only videos that are still accelerating, not ones that already peaked.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Feature Cards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-16">
           <div 
