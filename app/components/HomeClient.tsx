@@ -728,7 +728,7 @@ export function HomeClient() {
               </div>
             )}
 
-            {isFreeLimitReached && (
+            {isFreeLimitReached && !userIsPro && (
               <div 
                 className="mt-4 max-w-3xl mx-auto p-3 bg-neutral-900/50 border border-neutral-800 rounded-lg text-xs text-neutral-400 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
                 style={{ pointerEvents: "auto" }}
