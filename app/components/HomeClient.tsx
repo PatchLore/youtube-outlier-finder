@@ -124,9 +124,8 @@ export function HomeClient() {
 
   // Get user and calculate plan
   const { user } = useUser();
-  const userEmail = user?.emailAddresses[0]?.emailAddress;
   const publicMetadata = user?.publicMetadata;
-  const plan: UserPlan = getUserPlan(userEmail, publicMetadata);
+  const plan: UserPlan = getUserPlan(publicMetadata);
   const userIsPro = isPro(plan);
 
   // Load saved searches from localStorage on mount
@@ -274,7 +273,7 @@ export function HomeClient() {
       return b.multiplier - a.multiplier;
     });
 
-  const visibleResults = filteredResults.slice(0, FREE_LIMIT);
+  const visibleResults = userIsPro ? filteredResults : filteredResults.slice(0, FREE_LIMIT);
 
   const hasBaseResults = results.length > 0;
   const hasFilteredResults = filteredResults.length > 0;
@@ -741,7 +740,7 @@ export function HomeClient() {
                 }}
               >
                 <p>
-                  Showing 5 of {filteredResults.length} breakout videos.
+                  Showing {userIsPro ? filteredResults.length : 5} of {filteredResults.length} breakout videos.
                 </p>
                 <button
                   type="button"
