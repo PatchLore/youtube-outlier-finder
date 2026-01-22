@@ -116,6 +116,7 @@ export function HomeClient() {
   const [error, setError] = useState<string | null>(null);
   const [savedSearches, setSavedSearches] = useState<string[]>([]);
 
+  // Default to higher cap for Pro users to unlock benefits immediately
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
   const [viewFloor, setViewFloor] = useState<ViewFloor>(">=1k");
   const [sortBy, setSortBy] = useState<SortOption>("multiplier");
@@ -507,34 +508,41 @@ export function HomeClient() {
         {hasBaseResults && (
           <div className="max-w-3xl mx-auto mb-4 flex flex-wrap gap-3 items-center justify-between text-xs text-neutral-300">
             <div className="flex flex-wrap gap-3">
-              <label className="flex items-center gap-2">
-                <span className="text-neutral-400">Subscriber cap</span>
-                <div className="relative">
-                  <select
-                    value={subscriberCap}
-                    onChange={(e) =>
-                      setSubscriberCap(e.target.value as SubscriberCap)
-                    }
-                    disabled={!userIsPro}
-                    title={!userIsPro ? "Filter out channels bigger than yours (Pro)" : undefined}
-                    className={`bg-neutral-900 border border-neutral-700 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500/70 ${
-                      !userIsPro ? "opacity-60 cursor-not-allowed" : ""
-                    }`}
-                  >
-                    <option value="<10k">≤10k</option>
-                    <option value="<50k">≤50k (Recommended)</option>
-                    <option value="<100k">≤100k</option>
-                    <option value="<250k">≤250k</option>
-                    <option value="<500k">≤500k</option>
-                    <option value="<1M">≤1M+</option>
-                    <option value="nolimit">Unlimited</option>
-                  </select>
-                  {!userIsPro && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[0.6rem] font-semibold px-1 rounded" title="Filter out channels bigger than yours (Pro)">
-                      Pro
-                    </span>
-                  )}
+              <label className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Subscriber cap</span>
+                  <div className="relative">
+                    <select
+                      value={subscriberCap}
+                      onChange={(e) =>
+                        setSubscriberCap(e.target.value as SubscriberCap)
+                      }
+                      disabled={!userIsPro}
+                      title={!userIsPro ? "Filter out channels bigger than yours (Pro)" : undefined}
+                      className={`bg-neutral-900 border border-neutral-700 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500/70 ${
+                        !userIsPro ? "opacity-60 cursor-not-allowed" : ""
+                      }`}
+                    >
+                      <option value="<10k">≤10k</option>
+                      <option value="<50k">≤50k (Recommended)</option>
+                      <option value="<100k">≤100k</option>
+                      <option value="<250k">≤250k</option>
+                      <option value="<500k">≤500k</option>
+                      <option value="<1M">≤1M+</option>
+                      <option value="nolimit">Unlimited</option>
+                    </select>
+                    {!userIsPro && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[0.6rem] font-semibold px-1 rounded" title="Filter out channels bigger than yours (Pro)">
+                        Pro
+                      </span>
+                    )}
+                  </div>
                 </div>
+                <p className="text-[0.65rem] text-neutral-500 leading-tight">
+                  {userIsPro 
+                    ? "Focus on replicable ideas from channels your size. Higher caps show what works at scale."
+                    : "Default: ≤50k ensures ideas work without audience advantage. Pro unlocks custom caps."}
+                </p>
               </label>
 
               <label className="flex items-center gap-2">
@@ -561,14 +569,19 @@ export function HomeClient() {
         {/* Advanced Toggle: Include Scale-Up Channels */}
         {hasBaseResults && userIsPro && (
           <div className="max-w-3xl mx-auto mb-4">
-            <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+            <label className="flex items-start gap-2 text-xs text-neutral-300 cursor-pointer">
               <input
                 type="checkbox"
                 checked={includeScaleUpChannels}
                 onChange={(e) => handleScaleUpToggle(e.target.checked)}
-                className="w-4 h-4 rounded border-neutral-700 bg-neutral-900 text-red-500 focus:ring-1 focus:ring-red-500/70"
+                className="w-4 h-4 mt-0.5 rounded border-neutral-700 bg-neutral-900 text-red-500 focus:ring-1 focus:ring-red-500/70"
               />
-              <span>Include Scale-Up Channels (Advanced)</span>
+              <div className="flex-1">
+                <span className="font-medium">Include larger channels</span>
+                <p className="text-[0.65rem] text-neutral-500 leading-tight mt-0.5">
+                  Show videos from channels above your selected cap. Useful for trend analysis, but less replicable for small creators.
+                </p>
+              </div>
             </label>
           </div>
         )}
