@@ -24,8 +24,28 @@ export const dynamic = "force-dynamic";
  * @returns JSON response with status 200 on success, error response on failure
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // Get and validate Stripe secret key
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  
+  if (!stripeSecretKey) {
+    console.error("[Webhook] STRIPE_SECRET_KEY is not configured");
+    return NextResponse.json(
+      { error: "Stripe secret key not configured" },
+      { status: 500 }
+    );
+  }
+  
+  // Validate key format (must start with sk_test_ or sk_live_)
+  if (!stripeSecretKey.startsWith("sk_test_") && !stripeSecretKey.startsWith("sk_live_")) {
+    console.error("[Webhook] Invalid STRIPE_SECRET_KEY format. Key must start with 'sk_test_' or 'sk_live_'");
+    return NextResponse.json(
+      { error: "Invalid Stripe secret key format" },
+      { status: 500 }
+    );
+  }
+  
   // Initialize Stripe client inside handler to prevent build-time execution
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+  const stripe = new Stripe(stripeSecretKey, {
     apiVersion: "2025-12-15.clover",
   });
 
