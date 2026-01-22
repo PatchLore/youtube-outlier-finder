@@ -124,7 +124,10 @@ export function HomeClient() {
 
   // Get user and calculate plan
   const { user, isLoaded } = useUser();
-  const publicMetadata = isLoaded ? user?.publicMetadata : undefined;
+  const planValue = isLoaded ? (user?.publicMetadata?.plan as string | undefined) : undefined;
+  const publicMetadata = isLoaded && user?.publicMetadata 
+    ? (user.publicMetadata as Record<string, unknown>)
+    : undefined;
   const plan: UserPlan = getUserPlan(publicMetadata);
   const userIsPro = isLoaded && isPro(plan);
 
