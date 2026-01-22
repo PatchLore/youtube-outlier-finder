@@ -123,10 +123,10 @@ export function HomeClient() {
   const [showScaleUpWarning, setShowScaleUpWarning] = useState(false);
 
   // Get user and calculate plan
-  const { user } = useUser();
-  const publicMetadata = user?.publicMetadata;
+  const { user, isLoaded } = useUser();
+  const publicMetadata = isLoaded ? user?.publicMetadata : undefined;
   const plan: UserPlan = getUserPlan(publicMetadata);
-  const userIsPro = isPro(plan);
+  const userIsPro = isLoaded && isPro(plan);
 
   // Load saved searches from localStorage on mount
   useEffect(() => {
