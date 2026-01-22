@@ -150,7 +150,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Update the Clerk user's publicMetadata to grant Pro access
   try {
-    await clerkClient.users.updateUser(clerkUserId, {
+    const client = await clerkClient();
+    await client.users.updateUser(clerkUserId, {
       publicMetadata: {
         plan: "pro",
       },
