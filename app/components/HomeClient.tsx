@@ -556,7 +556,7 @@ export function HomeClient() {
                 </p>
               </div>
               <p className="text-xs text-neutral-500 mb-3">
-                Saved searches power your weekly personalized outlier feed (Pro)
+                Your saved searches power weekly email digests with personalized outlier recommendations (Pro feature)
               </p>
               <div className="flex flex-wrap gap-2">
                 {savedSearches.map((savedQuery) => (
@@ -588,7 +588,7 @@ export function HomeClient() {
         {!userIsPro && hasBaseResults && (
           <div className="max-w-2xl mx-auto mb-4">
             <p className="text-xs text-neutral-500 text-center">
-              Pro users can save searches to power their weekly personalized outlier feed
+              Pro feature: Save searches and receive weekly email digests with personalized outlier recommendations
             </p>
           </div>
         )}
@@ -631,7 +631,7 @@ export function HomeClient() {
                         setSubscriberCap(e.target.value as SubscriberCap)
                       }
                       disabled={!userIsPro}
-                      title={!userIsPro ? "Filter out channels bigger than yours (Pro)" : undefined}
+                      title={!userIsPro ? "Pro feature: Filter by subscriber cap to focus on channels your size" : undefined}
                       className={`bg-neutral-900 border border-neutral-700 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500/70 ${
                         !userIsPro ? "opacity-60 cursor-not-allowed" : ""
                       }`}
@@ -645,7 +645,7 @@ export function HomeClient() {
                       <option value="nolimit">Unlimited</option>
                     </select>
                     {!userIsPro && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[0.6rem] font-semibold px-1 rounded" title="Filter out channels bigger than yours (Pro)">
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[0.6rem] font-semibold px-1 rounded" title="Pro feature: Filter by subscriber cap to focus on channels your size">
                         Pro
                       </span>
                     )}
@@ -654,7 +654,7 @@ export function HomeClient() {
                 <p className="text-[0.65rem] text-neutral-500 leading-tight">
                   {userIsPro 
                     ? "Focus on replicable ideas from channels your size. Higher caps show what works at scale."
-                    : "Default: ≤50k ensures ideas work without audience advantage. Pro unlocks custom caps."}
+                    : "Free users see results from channels ≤50k. Pro unlocks unlimited results and custom subscriber filters."}
                 </p>
               </label>
 
@@ -817,7 +817,7 @@ export function HomeClient() {
                 }}
               >
                 <p>
-                  Showing {userIsPro ? filteredResults.length : 5} of {filteredResults.length} breakout videos.
+                  Showing {userIsPro ? filteredResults.length : 5} of {filteredResults.length} breakout videos. {!userIsPro && "Upgrade to Pro to see all results."}
                 </p>
                 <button
                   type="button"
@@ -831,7 +831,7 @@ export function HomeClient() {
                   style={{ pointerEvents: "auto", zIndex: 10, position: "relative", cursor: "pointer" }}
                   className="shrink-0 rounded-md bg-red-500/90 text-xs font-semibold px-3 py-1.5 text-white hover:bg-red-500 disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
                 >
-                  {loading ? "Loading..." : "Unlock full results"}
+                  {loading ? "Loading..." : "Upgrade to Pro"}
                 </button>
               </div>
             )}
@@ -839,7 +839,9 @@ export function HomeClient() {
             {hasVisibleResults && (
               <div className="mt-4 max-w-3xl mx-auto text-center">
                 <p className="text-xs text-neutral-500">
-                  Pro users see all outliers + unlock subscriber filters
+                  {userIsPro 
+                    ? "Pro: Unlimited results, saved searches, and weekly email digests"
+                    : "Free: Up to 5 results per search. Pro unlocks unlimited results, saved searches, and weekly email digests."}
                 </p>
               </div>
             )}
