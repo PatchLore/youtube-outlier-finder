@@ -58,11 +58,11 @@ export function PricingClient() {
         <div className="text-center space-y-3 mb-12 sm:mb-16">
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight">
             <span className="bg-gradient-to-br from-white to-purple-500 bg-clip-text text-transparent">
-              Find YouTube ideas that outperform their audience size
+              Spot breakout YouTube ideas before they&apos;re obvious
             </span>
           </h1>
           <p className="text-base sm:text-lg text-white/60 max-w-2xl mx-auto">
-            Most tools show what&apos;s popular. We show what worked — even without a big audience.
+            Most tools show what&apos;s popular. We show what&apos;s breaking out — even without a big audience.
           </p>
         </div>
 

@@ -588,7 +588,7 @@ export function HomeClient() {
         {!userIsPro && hasBaseResults && (
           <div className="max-w-2xl mx-auto mb-4">
             <p className="text-xs text-neutral-500 text-center">
-              Pro feature: Save searches and receive weekly email digests with personalized outlier recommendations
+              Pro: Save searches and receive weekly email digests with personalized outlier recommendations
             </p>
           </div>
         )}
@@ -600,9 +600,9 @@ export function HomeClient() {
               onClick={saveSearch}
               disabled={savedSearches.includes(query.trim())}
               className="text-xs text-neutral-400 hover:text-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title={savedSearches.includes(query.trim()) ? "Search already saved" : "Save this search"}
+              title={savedSearches.includes(query.trim()) ? "Search already saved" : "Save this search for weekly digests"}
             >
-              {savedSearches.includes(query.trim()) ? "✓ Saved" : "+ Save this search"}
+              {savedSearches.includes(query.trim()) ? "✓ Saved" : "+ Save search"}
             </button>
           </div>
         )}
@@ -817,7 +817,7 @@ export function HomeClient() {
                 }}
               >
                 <p>
-                  Showing {userIsPro ? filteredResults.length : 5} of {filteredResults.length} breakout videos. {!userIsPro && "Upgrade to Pro to see all results."}
+                  Showing {userIsPro ? filteredResults.length : 5} of {filteredResults.length} breakout videos{!userIsPro && ". Upgrade to Pro to see all results"}
                 </p>
                 <button
                   type="button"
@@ -841,7 +841,7 @@ export function HomeClient() {
                 <p className="text-xs text-neutral-500">
                   {userIsPro 
                     ? "Pro: Unlimited results, saved searches, and weekly email digests"
-                    : "Free: Up to 5 results per search. Pro unlocks unlimited results, saved searches, and weekly email digests."}
+                    : "Free: Up to 5 results per search. Pro: Unlimited results, saved searches, and weekly email digests."}
                 </p>
               </div>
             )}
