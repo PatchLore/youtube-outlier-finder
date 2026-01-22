@@ -1,6 +1,45 @@
 "use client";
 
+// Force dynamic rendering to prevent any build-time execution
+export const dynamic = "force-dynamic";
+
+import { useRouter } from "next/navigation";
+
 export default function PricingPage() {
+  const router = useRouter();
+
+  async function handleCheckout() {
+    console.log("Pricing page: handleCheckout called");
+    try {
+      console.log("Pricing page: Starting checkout...");
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      console.log("Pricing page: Checkout response:", response.status, response.statusText);
+
+      if (!response.ok) {
+        const data = await response.json();
+        console.error("Pricing page: Checkout error:", data);
+        throw new Error(data.error || "Failed to create checkout session");
+      }
+
+      const { url } = await response.json();
+      console.log("Pricing page: Checkout URL received:", url);
+      if (url) {
+        window.location.href = url;
+      } else {
+        console.error("Pricing page: No checkout URL in response");
+        throw new Error("No checkout URL received");
+      }
+    } catch (err: any) {
+      console.error("Pricing page: Checkout exception:", err);
+      alert(err.message || "Failed to start checkout. Please try again.");
+    }
+  }
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-50 px-4 py-12 sm:py-16">
       <div className="max-w-5xl mx-auto">
@@ -103,6 +142,12 @@ export default function PricingPage() {
             </ul>
             <button
               type="button"
+              onClick={(e) => {
+                console.log("=== PRICING PAGE BUTTON CLICKED ===");
+                e.preventDefault();
+                e.stopPropagation();
+                handleCheckout();
+              }}
               className="w-full rounded-md bg-red-500 text-sm font-medium px-4 py-2 hover:bg-red-600 transition-colors"
             >
               Unlock full results

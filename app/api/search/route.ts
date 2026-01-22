@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { calculateViralityMultiplier, isOutlierVideo } from "@/lib/outlier";
 
-const API_KEY = process.env.YOUTUBE_API_KEY;
+// CRITICAL: Must use Node.js runtime for API calls
+export const runtime = "nodejs";
+
+// Force dynamic rendering (search is always dynamic)
+export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  // Get API key inside handler to prevent build-time execution
+  const API_KEY = process.env.YOUTUBE_API_KEY;
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q");
 
