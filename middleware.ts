@@ -8,6 +8,11 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
+  // Skip /api/webhook to allow Stripe webhook requests without Clerk authentication
+  if (req.nextUrl.pathname.startsWith("/api/webhook")) {
+    return NextResponse.next();
+  }
+
   // Skip /api/search to allow outbound HTTP requests without Clerk processing
   if (req.nextUrl.pathname.startsWith("/api/search")) {
     return NextResponse.next();
