@@ -44,6 +44,12 @@ CLERK_SECRET_KEY=your_clerk_secret_key
 # YouTube Data API
 YOUTUBE_API_KEY=your_youtube_api_key
 
+# Stripe (for Pro subscriptions)
+STRIPE_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_STRIPE_PRICE_ID=price_...
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+STRIPE_WEBHOOK_SECRET=whsec_...  # See "Stripe Webhook (Local Dev)" section below
+
 
 ⚠️ Never commit real API keys.
 .env.local is gitignored by default.
@@ -54,6 +60,53 @@ npm run dev
 
 Open:
 http://localhost:3000
+
+## Stripe Webhook (Local Dev)
+
+To test Pro subscription checkout locally, you need to forward Stripe webhooks to your local server.
+
+### Prerequisites
+
+1. Install Stripe CLI: https://stripe.com/docs/stripe-cli
+2. Login to Stripe CLI: `stripe login`
+
+### Setup Steps
+
+1. **Start your Next.js dev server** (in one terminal):
+   ```powershell
+   npm run dev
+   ```
+
+2. **Forward Stripe webhooks** (in another terminal):
+   ```powershell
+   stripe listen --forward-to localhost:3000/api/webhook
+   ```
+
+3. **Copy the webhook signing secret**:
+   - The Stripe CLI will output: `Ready! Your webhook signing secret is whsec_...`
+   - Copy this secret value
+
+4. **Add to .env.local**:
+   ```env
+   STRIPE_WEBHOOK_SECRET=whsec_...
+   ```
+
+5. **Restart your dev server** to load the new environment variable
+
+### Important Notes
+
+- **Webhook secret ≠ API keys**: The webhook secret (`whsec_...`) is different from your Stripe API keys (`sk_test_...` or `pk_test_...`)
+- **Local only**: The webhook secret from Stripe CLI is only for local development
+- **Production**: In production, get the webhook secret from Stripe Dashboard > Webhooks > Your endpoint
+- **Auto-unlock**: After successful payment, the webhook automatically grants Pro access (no page refresh needed, but refresh to see changes)
+
+### Testing
+
+1. Click "Unlock full results" button
+2. Complete checkout with test card: `4242 4242 4242 4242`
+3. Check Stripe CLI terminal for webhook delivery confirmation
+4. Check Next.js server logs for: `✅ Successfully granted Pro access to user: ...`
+5. Refresh the page → User should now have Pro access
 
 Project structure (high level)
 app/
