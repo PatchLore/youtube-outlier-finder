@@ -660,7 +660,7 @@ export function HomeClient() {
 
               <label className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-neutral-400">Minimum views</span>
+                  <span className="text-neutral-400">Minimum traction</span>
                   <select
                     value={viewFloor}
                     onChange={(e) => setViewFloor(e.target.value as ViewFloor)}
@@ -673,15 +673,15 @@ export function HomeClient() {
                   </select>
                 </div>
                 <p className="text-[0.65rem] text-neutral-500 leading-tight">
-                  Filter out videos below this view count to focus on higher-signal results.
+                  Set the minimum view count threshold to focus on videos with meaningful traction.
                 </p>
               </label>
             </div>
 
             <div className="flex flex-col gap-1 mt-1 sm:mt-0">
-              <span className="text-xs text-neutral-400">Sorted by efficiency</span>
+              <span className="text-xs text-neutral-400">Sorted by breakout performance</span>
               <p className="text-[0.65rem] text-neutral-500 leading-tight">
-                Videos with the highest views relative to subscriber count appear first.
+                Videos ranked by performance relative to channel size. Higher scores mean stronger breakout signals.
               </p>
             </div>
           </div>
