@@ -532,7 +532,19 @@ export function HomeClient() {
             <button
               type="submit"
               disabled={loading}
-              className="shrink-0 rounded-md bg-red-500 text-sm font-medium px-4 py-2 hover:bg-red-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              className="shrink-0 inline-flex items-center justify-center rounded-xl text-sm font-semibold px-4 py-2 text-white transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+              style={{
+                background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
+              }}
+              onMouseEnter={(e) => {
+                if (!loading) {
+                  e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
+              }}
             >
               {loading ? "Searching..." : "Search"}
             </button>
@@ -869,7 +881,11 @@ export function HomeClient() {
               <button
                 type="button"
                 disabled
-                className="w-full sm:w-auto inline-flex items-center justify-center rounded-md bg-red-500/90 text-xs sm:text-sm font-semibold px-4 py-2 text-white disabled:opacity-70 disabled:cursor-not-allowed"
+                className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl text-xs sm:text-sm font-semibold px-4 py-2 text-white transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed"
+                style={{
+                  background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                  boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
+                }}
               >
                 Join the waitlist
               </button>
