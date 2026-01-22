@@ -2,12 +2,19 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2025-12-15.clover",
-});
+// CRITICAL: Must use Node.js runtime for Stripe API calls
+export const runtime = "nodejs";
+
+// Force dynamic rendering (checkout is always dynamic)
+export const dynamic = "force-dynamic";
 
 export async function POST() {
   try {
+    // Initialize Stripe client inside handler to prevent build-time execution
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+      apiVersion: "2025-12-15.clover",
+    });
+
     // Require authenticated user
     const { userId } = await auth();
     
