@@ -38,103 +38,151 @@ export function PricingClient() {
     }
   }
   return (
-    <main className="min-h-screen bg-neutral-950 text-neutral-50 px-4 py-12 sm:py-16">
-      <div className="max-w-5xl mx-auto">
-        <div className="text-center space-y-3 mb-12">
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
-            Find YouTube ideas that outperform their audience size
+    <main className="min-h-screen text-white overflow-x-hidden" style={{ background: "#0a0a0f" }}>
+      {/* Animated gradient background */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <div 
+          className="absolute inset-0 opacity-100 animate-pulse"
+          style={{
+            background: `
+              radial-gradient(circle at 20% 50%, rgba(120, 40, 200, 0.15) 0%, transparent 50%),
+              radial-gradient(circle at 80% 80%, rgba(200, 40, 120, 0.15) 0%, transparent 50%),
+              radial-gradient(circle at 40% 90%, rgba(40, 120, 200, 0.1) 0%, transparent 50%)
+            `
+          }}
+        />
+      </div>
+
+      <div className="relative z-10 max-w-6xl mx-auto px-5 py-12 sm:py-16">
+        {/* Header */}
+        <div className="text-center space-y-3 mb-12 sm:mb-16">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight">
+            <span className="bg-gradient-to-br from-white to-purple-500 bg-clip-text text-transparent">
+              Find YouTube ideas that outperform their audience size
+            </span>
           </h1>
-          <p className="text-base sm:text-lg text-neutral-400 max-w-2xl mx-auto">
-            Most tools show what's popular. We show what worked — even without a big audience.
+          <p className="text-base sm:text-lg text-white/60 max-w-2xl mx-auto">
+            Most tools show what&apos;s popular. We show what worked — even without a big audience.
           </p>
         </div>
 
         {/* Plans */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
           {/* FREE TIER */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 flex flex-col">
-            <div className="mb-4">
-              <h2 className="text-xl font-semibold mb-1">FREE</h2>
-              <h3 className="text-sm font-medium text-neutral-400 mb-3">Explore</h3>
-              <p className="text-xs text-neutral-400">
+          <div 
+            className="relative rounded-3xl p-8 flex flex-col"
+            style={{
+              background: "rgba(255, 255, 255, 0.03)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid rgba(255, 255, 255, 0.1)"
+            }}
+          >
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold mb-2 text-white">FREE</h2>
+              <h3 className="text-sm font-medium text-white/60 mb-3">Explore</h3>
+              <p className="text-sm text-white/50">
                 Understand what breakout really looks like
               </p>
             </div>
-            <ul className="space-y-2 flex-1 mb-6 text-xs text-neutral-300">
+            <ul className="space-y-3 flex-1 mb-8 text-sm text-white/70">
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
+                <span className="text-white/40 mt-0.5">•</span>
                 <span>Search YouTube for outlier videos</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
+                <span className="text-white/40 mt-0.5">•</span>
                 <span>See up to 5 results per search</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
+                <span className="text-white/40 mt-0.5">•</span>
                 <span>Confidence tiers (🔥 Promising / 🚀 Strong / 💎 Breakout)</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
-                <span>Plain-English "Why this is an outlier" explanations</span>
+                <span className="text-white/40 mt-0.5">•</span>
+                <span>Plain-English &quot;Why this is an outlier&quot; explanations</span>
               </li>
             </ul>
             <button
               type="button"
-              className="w-full rounded-md bg-neutral-800 border border-neutral-700 text-sm font-medium px-4 py-2 hover:bg-neutral-750 transition-colors"
+              className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all duration-300 backdrop-blur-md border border-white/20 hover:bg-white/10"
+              style={{ background: "rgba(255, 255, 255, 0.05)" }}
             >
               Try it free
             </button>
           </div>
 
           {/* PRO TIER */}
-          <div className="bg-neutral-900 border-2 border-red-500/50 rounded-xl p-6 flex flex-col relative">
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <span className="bg-red-500 text-white text-xs font-semibold px-3 py-1 rounded-full">
-                Most Popular
+          <div 
+            className="relative rounded-3xl p-8 flex flex-col group"
+            style={{
+              background: "rgba(255, 255, 255, 0.03)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid rgba(168, 85, 247, 0.3)"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.6)";
+              e.currentTarget.style.boxShadow = "0 20px 60px rgba(168, 85, 247, 0.3)";
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.3)";
+              e.currentTarget.style.boxShadow = "none";
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+            }}
+          >
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
+              <span 
+                className="text-xs font-semibold px-4 py-1.5 rounded-full text-white"
+                style={{
+                  background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                  boxShadow: "0 0 20px rgba(168, 85, 247, 0.5)"
+                }}
+              >
+                Recommended
               </span>
             </div>
-            <div className="mb-4 mt-2">
-              <h2 className="text-xl font-semibold mb-1">PRO</h2>
-              <div className="flex items-baseline gap-1 mb-3">
-                <span className="text-2xl font-semibold">$29</span>
-                <span className="text-sm text-neutral-400">/ month</span>
+            <div className="mb-6 mt-2">
+              <h2 className="text-2xl font-bold mb-2 text-white">PRO</h2>
+              <div className="flex items-baseline gap-2 mb-3">
+                <span className="text-3xl font-bold text-white">$29</span>
+                <span className="text-sm text-white/60">/ month</span>
               </div>
-              <p className="text-xs text-neutral-400 mb-3">
+              <p className="text-sm text-white/50 mb-3">
                 For creators who want a repeatable, unfair advantage
               </p>
             </div>
-            <ul className="space-y-2 flex-1 mb-6 text-xs text-neutral-300">
+            <ul className="space-y-3 flex-1 mb-8 text-sm text-white/70">
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
+                <span className="text-white/40 mt-0.5">•</span>
                 <span>Unlimited searches</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
+                <span className="text-white/40 mt-0.5">•</span>
                 <span>See all outlier results (no 5-video cap)</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
+                <span className="text-white/40 mt-0.5">•</span>
+                <span>Save searches for weekly digests</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-white/40 mt-0.5">•</span>
+                <span>Weekly outlier digests by email</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-white/40 mt-0.5">•</span>
                 <span>Subscriber cap filters (hide channels bigger than you)</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
+                <span className="text-white/40 mt-0.5">•</span>
                 <span>View floor filters</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
+                <span className="text-white/40 mt-0.5">•</span>
                 <span>Sort by virality multiplier or views</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
-                <span>Full explanations on every result</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
-                <span>Weekly personalized outlier feed based on saved searches</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-neutral-500 mt-0.5">•</span>
-                <span>Email alerts when new outliers appear in your niches</span>
+                <span className="text-white/40 mt-0.5">•</span>
+                <span>Email alerts when new outliers appear</span>
               </li>
             </ul>
             <button
@@ -145,100 +193,117 @@ export function PricingClient() {
                 e.stopPropagation();
                 handleCheckout();
               }}
-              className="w-full rounded-md bg-red-500 text-sm font-medium px-4 py-2 hover:bg-red-600 transition-colors"
+              className="w-full rounded-xl py-4 text-base font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+              style={{
+                background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
+              }}
             >
-              Unlock full results
+              Upgrade to Pro
             </button>
           </div>
         </div>
 
         {/* Comparison Table */}
-        <div className="mt-4 mb-10 bg-neutral-950/50 border border-neutral-900 rounded-xl overflow-hidden">
-          <div className="grid grid-cols-3 text-xs sm:text-sm text-neutral-300">
-            <div className="bg-neutral-950/80 px-3 sm:px-4 py-3 border-b border-neutral-900" />
-            <div className="bg-neutral-950/80 px-3 sm:px-4 py-3 border-b border-neutral-900 text-center font-medium">
+        <div 
+          className="mt-8 mb-12 rounded-3xl overflow-hidden"
+          style={{
+            background: "rgba(255, 255, 255, 0.02)",
+            backdropFilter: "blur(20px)",
+            border: "1px solid rgba(255, 255, 255, 0.08)"
+          }}
+        >
+          <div className="grid grid-cols-3 text-xs sm:text-sm text-white/70">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10" style={{ background: "rgba(255, 255, 255, 0.02)" }} />
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center font-semibold text-white" style={{ background: "rgba(255, 255, 255, 0.02)" }}>
               Free
             </div>
-            <div className="bg-neutral-950/80 px-3 sm:px-4 py-3 border-b border-neutral-900 text-center font-medium">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center font-semibold text-white" style={{ background: "rgba(255, 255, 255, 0.02)" }}>
               Pro
             </div>
 
             {/* Price row */}
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 font-medium text-neutral-400">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 font-medium text-white/60">
               Price
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center text-neutral-200">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/80">
               $0
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center text-red-400">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center" style={{ color: "#a855f7" }}>
               $29 / month
             </div>
 
             {/* Result limit */}
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-neutral-400">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-white/60">
               Outlier results per search
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/50">
               Up to 5 breakout videos
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/80">
               All breakout videos
             </div>
 
             {/* Subscriber cap */}
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-neutral-400">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-white/60">
               Subscriber cap filtering
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center text-neutral-500">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/50">
               View-only (locked)
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/80">
               Filter out channels bigger than you
             </div>
 
             {/* Weekly feed */}
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-neutral-400">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-white/60">
               Weekly personalized outlier feed
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center text-neutral-500">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/50">
               –
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/80">
               Based on your saved searches
             </div>
 
             {/* Alerts */}
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-neutral-400">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-white/60">
               Alerts for new outliers
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center text-neutral-500">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/50">
               –
             </div>
-            <div className="px-3 sm:px-4 py-3 border-b border-neutral-900 text-center">
+            <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/80">
               Email alerts when new outliers appear
             </div>
 
             {/* Saved searches */}
-            <div className="px-3 sm:px-4 py-3 text-neutral-400">
+            <div className="px-4 sm:px-6 py-4 text-white/60">
               Saved searches
             </div>
-            <div className="px-3 sm:px-4 py-3 text-center text-neutral-500">
+            <div className="px-4 sm:px-6 py-4 text-center text-white/50">
               –
             </div>
-            <div className="px-3 sm:px-4 py-3 text-center">
+            <div className="px-4 sm:px-6 py-4 text-center text-white/80">
               Unlimited saved keyword / niche watches
             </div>
           </div>
         </div>
 
-        <div className="text-center space-y-3 text-xs sm:text-sm text-neutral-400 max-w-2xl mx-auto">
-          <p className="font-medium text-neutral-300">
+        <div className="text-center space-y-3 text-xs sm:text-sm text-white/50 max-w-2xl mx-auto">
+          <p className="font-medium text-white/70">
             No ads. No affiliate bias. No fake metrics.
           </p>
-          <p className="text-neutral-500">
+          <p className="text-white/60">
             One good idea pays for this.
           </p>
-          <p className="text-[0.7rem] text-neutral-600">
+          <p className="text-[0.7rem] text-white/40">
             Prices may increase as features ship. Early users will be grandfathered.
           </p>
         </div>

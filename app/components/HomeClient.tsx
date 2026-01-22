@@ -282,117 +282,182 @@ export function HomeClient() {
   }, [isFreeLimitReached, filteredResults.length]);
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-50">
-      <div className="mx-auto max-w-5xl px-6 py-16 sm:py-24">
-        {/* Subtle background glow */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="mx-auto h-[420px] w-[720px] -translate-y-24 rounded-full bg-zinc-800/20 blur-3xl" />
+    <main className="min-h-screen text-white overflow-x-hidden" style={{ background: "#0a0a0f" }}>
+      {/* Animated gradient background */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <div 
+          className="absolute inset-0 opacity-100 animate-pulse"
+          style={{
+            background: `
+              radial-gradient(circle at 20% 50%, rgba(120, 40, 200, 0.15) 0%, transparent 50%),
+              radial-gradient(circle at 80% 80%, rgba(200, 40, 120, 0.15) 0%, transparent 50%),
+              radial-gradient(circle at 40% 90%, rgba(40, 120, 200, 0.1) 0%, transparent 50%)
+            `
+          }}
+        />
+      </div>
+
+      <div className="relative z-10 max-w-6xl mx-auto px-5 py-10 sm:py-16">
+        {/* Hero Section */}
+        <div className="text-center mb-16 sm:mb-20 pt-12 sm:pt-16">
+          {/* Badge */}
+          <div className="inline-block px-5 py-2 mb-8 rounded-full text-xs font-semibold uppercase tracking-wider backdrop-blur-md border border-white/10" style={{ background: "rgba(255, 255, 255, 0.05)" }}>
+            🚀 Be Early. Not Lucky.
+          </div>
+
+          {/* Headline */}
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold mb-5 leading-tight">
+            <span className="bg-gradient-to-br from-white to-purple-500 bg-clip-text text-transparent">
+              Spot breakout YouTube ideas<br className="hidden sm:block" /> before they&apos;re obvious
+            </span>
+          </h1>
+
+          {/* Tagline */}
+          <p className="text-lg sm:text-xl text-white/70 max-w-2xl mx-auto mb-5 leading-relaxed">
+            We don&apos;t show what went viral.<br />
+            We show what&apos;s going viral.
+          </p>
+
+          {/* Description */}
+          <p className="text-base sm:text-lg text-white/50 max-w-3xl mx-auto mb-10 leading-relaxed">
+            Most tools show you what worked months ago — after it&apos;s already saturated. We surface videos from small creators that are{" "}
+            <span className="text-white/80 font-medium">blowing up right now</span>
+            , so you can jump on ideas while the wave is still rising.
+          </p>
+
+          {/* CTA Buttons */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center mb-20">
+            <a
+              href="#search"
+              className="inline-flex items-center justify-center px-8 py-4 rounded-xl text-base font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+              style={{
+                background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
+              }}
+            >
+              See what&apos;s breaking out now →
+            </a>
+
+            <Link
+              href="/pricing"
+              className="inline-flex items-center justify-center px-8 py-4 rounded-xl text-base font-semibold text-white transition-all duration-300 backdrop-blur-md border border-white/20 hover:bg-white/10 hover:border-purple-500/50"
+              style={{ background: "rgba(255, 255, 255, 0.05)" }}
+            >
+              View pricing
+            </Link>
+          </div>
         </div>
 
-        <div className="relative">
-          {/* Hero */}
-          <section className="mx-auto max-w-3xl text-center">
-            <p className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-xs font-semibold tracking-wide text-zinc-200">
-              BE EARLY. NOT LUCKY.
-              <span className="h-1 w-1 rounded-full bg-zinc-500" />
-              Live breakout signals
-            </p>
+        {/* Feature Cards Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-16">
+          <div 
+            className="relative rounded-3xl p-8 transition-all duration-300 hover:-translate-y-1 cursor-pointer group"
+            style={{
+              background: "rgba(255, 255, 255, 0.03)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid rgba(255, 255, 255, 0.1)"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+              e.currentTarget.style.boxShadow = "0 20px 60px rgba(168, 85, 247, 0.2)";
+              e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.5)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+              e.currentTarget.style.boxShadow = "none";
+              e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.1)";
+            }}
+          >
+            <h3 className="text-xl font-bold mb-3 text-white">Live breakout signals</h3>
+            <p className="text-[15px] text-white/60 leading-relaxed">Videos currently beating expectations.</p>
+          </div>
 
-            <h1 className="mt-6 text-4xl font-semibold tracking-tight sm:text-5xl">
-              Spot breakout YouTube ideas before they're obvious
-            </h1>
+          <div 
+            className="relative rounded-3xl p-8 transition-all duration-300 hover:-translate-y-1 cursor-pointer group"
+            style={{
+              background: "rgba(255, 255, 255, 0.03)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid rgba(255, 255, 255, 0.1)"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+              e.currentTarget.style.boxShadow = "0 20px 60px rgba(168, 85, 247, 0.2)";
+              e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.5)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+              e.currentTarget.style.boxShadow = "none";
+              e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.1)";
+            }}
+          >
+            <h3 className="text-xl font-bold mb-3 text-white">Fresh wins only</h3>
+            <p className="text-[15px] text-white/60 leading-relaxed">No stale &quot;top of all time&quot; results.</p>
+          </div>
 
-            <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5 text-left sm:p-6">
-              <p className="text-lg font-medium leading-relaxed text-zinc-100">
-                We don't show what went viral.
-                <br />
-                <span className="text-zinc-300">We show what's going viral.</span>
-              </p>
-            </div>
+          <div 
+            className="relative rounded-3xl p-8 transition-all duration-300 hover:-translate-y-1 cursor-pointer group"
+            style={{
+              background: "rgba(255, 255, 255, 0.03)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid rgba(255, 255, 255, 0.1)"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+              e.currentTarget.style.boxShadow = "0 20px 60px rgba(168, 85, 247, 0.2)";
+              e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.5)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+              e.currentTarget.style.boxShadow = "none";
+              e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.1)";
+            }}
+          >
+            <h3 className="text-xl font-bold mb-3 text-white">Small-creator proven</h3>
+            <p className="text-[15px] text-white/60 leading-relaxed">Ideas that work without a massive audience.</p>
+          </div>
 
-            <p className="mt-6 text-base leading-relaxed text-zinc-300 sm:text-lg">
-              Most tools show you what worked months ago — after it's already
-              saturated. We surface videos from small creators that are{" "}
-              <span className="text-zinc-100 font-medium">blowing up right now</span>
-              , so you can jump on ideas while the wave is still rising.
-            </p>
+          <div 
+            className="relative rounded-3xl p-8 transition-all duration-300 hover:-translate-y-1 cursor-pointer group"
+            style={{
+              background: "rgba(255, 255, 255, 0.03)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid rgba(255, 255, 255, 0.1)"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+              e.currentTarget.style.boxShadow = "0 20px 60px rgba(168, 85, 247, 0.2)";
+              e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.5)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+              e.currentTarget.style.boxShadow = "none";
+              e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.1)";
+            }}
+          >
+            <h3 className="text-xl font-bold mb-3 text-white">High signal over noise</h3>
+            <p className="text-[15px] text-white/60 leading-relaxed">Punch-above-weight beats raw view counts.</p>
+          </div>
+        </div>
 
-            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <a
-                href="#search"
-                className="inline-flex w-full items-center justify-center rounded-xl bg-zinc-50 px-5 py-3 text-sm font-semibold text-zinc-950 shadow-sm transition hover:bg-zinc-200 sm:w-auto"
-              >
-                See what's breaking out now →
-              </a>
-
-              <Link
-                href="/pricing"
-                className="inline-flex w-full items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/40 px-5 py-3 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-900 sm:w-auto"
-              >
-                View pricing
-              </Link>
-            </div>
-
-            {/* Value bullets */}
-            <div className="mt-12 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 text-left">
-                <p className="text-sm font-semibold text-zinc-100">
-                  Live breakout signals
-                </p>
-                <p className="mt-1 text-sm text-zinc-300">
-                  Videos currently beating expectations.
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 text-left">
-                <p className="text-sm font-semibold text-zinc-100">
-                  Fresh wins only
-                </p>
-                <p className="mt-1 text-sm text-zinc-300">
-                  No stale "top of all time" results.
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 text-left">
-                <p className="text-sm font-semibold text-zinc-100">
-                  Small-creator proven
-                </p>
-                <p className="mt-1 text-sm text-zinc-300">
-                  Ideas that work without a massive audience.
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 text-left">
-                <p className="text-sm font-semibold text-zinc-100">
-                  High signal over noise
-                </p>
-                <p className="mt-1 text-sm text-zinc-300">
-                  Punch-above-weight beats raw view counts.
-                </p>
-              </div>
-            </div>
-
-            {/* Timing section */}
-            <div className="mt-12 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-left">
-              <h2 className="text-base font-semibold text-zinc-100">
-                Why timing matters
-              </h2>
-              <p className="mt-3 text-sm leading-relaxed text-zinc-300">
-                Most YouTube tools show what worked months ago — by the time you
-                see it, 100 creators have already copied the idea.
-              </p>
-              <p className="mt-3 text-sm leading-relaxed text-zinc-300">
-                We focus on what's working{" "}
-                <span className="text-zinc-100 font-medium">right now</span> —
-                videos still gaining momentum, before the wave peaks.
-              </p>
-              <p className="mt-4 text-sm font-semibold text-zinc-100">
-                If you're second or third to a breakout, you win.
-                <br />
-                If you're 50th, you're noise.
-              </p>
-            </div>
-          </section>
+        {/* Why Timing Matters Section */}
+        <div 
+          className="rounded-3xl p-12 sm:p-16 mt-10"
+          style={{
+            background: "rgba(255, 255, 255, 0.02)",
+            backdropFilter: "blur(20px)",
+            border: "1px solid rgba(255, 255, 255, 0.08)"
+          }}
+        >
+          <h2 className="text-2xl sm:text-3xl font-bold mb-5 text-white">Why timing matters</h2>
+          <p className="text-base sm:text-lg text-white/60 leading-relaxed">
+            The difference between a successful content strategy and wasted effort often comes down to timing. By the time most creators discover a trend, it&apos;s already oversaturated. Our algorithm identifies momentum early, giving you the competitive edge to create content while there&apos;s still opportunity in the market.
+          </p>
         </div>
       </div>
 
@@ -537,23 +602,31 @@ export function HomeClient() {
                 </p>
               </label>
 
-              <label className="flex items-center gap-2">
-                <span className="text-neutral-400">View floor</span>
-                <select
-                  value={viewFloor}
-                  onChange={(e) => setViewFloor(e.target.value as ViewFloor)}
-                  className="bg-neutral-900 border border-neutral-700 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500/70"
-                >
-                  <option value=">=1k">≥ 1,000</option>
-                  <option value=">=5k">≥ 5,000</option>
-                  <option value=">=10k">≥ 10,000</option>
-                  <option value="nomin">No minimum</option>
-                </select>
+              <label className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Minimum views</span>
+                  <select
+                    value={viewFloor}
+                    onChange={(e) => setViewFloor(e.target.value as ViewFloor)}
+                    className="bg-neutral-900 border border-neutral-700 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500/70"
+                  >
+                    <option value=">=1k">≥ 1,000</option>
+                    <option value=">=5k">≥ 5,000</option>
+                    <option value=">=10k">≥ 10,000</option>
+                    <option value="nomin">No minimum</option>
+                  </select>
+                </div>
+                <p className="text-[0.65rem] text-neutral-500 leading-tight">
+                  Filter out videos below this view count to focus on higher-signal results.
+                </p>
               </label>
             </div>
 
-            <div className="flex items-center gap-2 mt-1 sm:mt-0">
-              <span className="text-xs text-neutral-400">Sorted by highest multiplier</span>
+            <div className="flex flex-col gap-1 mt-1 sm:mt-0">
+              <span className="text-xs text-neutral-400">Sorted by efficiency</span>
+              <p className="text-[0.65rem] text-neutral-500 leading-tight">
+                Videos with the highest views relative to subscriber count appear first.
+              </p>
             </div>
           </div>
         )}
