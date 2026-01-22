@@ -1,7 +1,12 @@
 "use client";
 
+// Force dynamic rendering to prevent Clerk from running during build-time prerender
+export const dynamic = "force-dynamic";
+
 import { FormEvent, useState, useEffect } from "react";
 import Link from "next/link";
+import { useUser } from "@clerk/nextjs";
+import { getUserPlan, isPro, type UserPlan } from "@/lib/auth";
 
 type OutlierResult = {
   id: string;
@@ -100,7 +105,6 @@ function getExampleRefinements(query: string): string[] {
 }
 
 const FREE_LIMIT = 5;
-const IS_PRO = false; // TODO: Replace with actual auth check when Pro tier is implemented
 
 type SubscriberCap = "<10k" | "<50k" | "<100k" | "<250k" | "<500k" | "<1M" | "nolimit";
 type ViewFloor = ">=1k" | ">=5k" | ">=10k" | "nomin";
@@ -121,9 +125,16 @@ export default function HomePage() {
   const [includeScaleUpChannels, setIncludeScaleUpChannels] = useState(false);
   const [showScaleUpWarning, setShowScaleUpWarning] = useState(false);
 
+  // Get user and calculate plan
+  const { user } = useUser();
+  const userEmail = user?.emailAddresses[0]?.emailAddress;
+  const publicMetadata = user?.publicMetadata;
+  const plan: UserPlan = getUserPlan(userEmail, publicMetadata);
+  const userIsPro = isPro(plan);
+
   // Load saved searches from localStorage on mount
   useEffect(() => {
-    if (IS_PRO && typeof window !== "undefined") {
+    if (userIsPro && typeof window !== "undefined") {
       const saved = localStorage.getItem(SAVED_SEARCHES_KEY);
       if (saved) {
         try {
@@ -137,14 +148,14 @@ export default function HomePage() {
 
   // Save searches to localStorage whenever they change
   useEffect(() => {
-    if (IS_PRO && typeof window !== "undefined") {
+    if (userIsPro && typeof window !== "undefined") {
       localStorage.setItem(SAVED_SEARCHES_KEY, JSON.stringify(savedSearches));
     }
-  }, [savedSearches]);
+  }, [savedSearches, userIsPro]);
 
   function saveSearch() {
     const trimmed = query.trim();
-    if (!trimmed || !IS_PRO) return;
+    if (!trimmed || !userIsPro) return;
     
     if (!savedSearches.includes(trimmed)) {
       setSavedSearches([...savedSearches, trimmed]);
@@ -152,12 +163,12 @@ export default function HomePage() {
   }
 
   function deleteSearch(searchQuery: string) {
-    if (!IS_PRO) return;
+    if (!userIsPro) return;
     setSavedSearches(savedSearches.filter((q) => q !== searchQuery));
   }
 
   function loadSearch(searchQuery: string) {
-    if (!IS_PRO) return;
+    if (!userIsPro) return;
     setQuery(searchQuery);
     // Trigger search automatically
     const form = document.querySelector("form");
@@ -170,6 +181,41 @@ export default function HomePage() {
     setIncludeScaleUpChannels(enabled);
     if (enabled) {
       setShowScaleUpWarning(true);
+    }
+  }
+
+  async function handleCheckout() {
+    console.log("handleCheckout called");
+    try {
+      console.log("Starting checkout...");
+      setLoading(true);
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      console.log("Checkout response:", response.status, response.statusText);
+
+      if (!response.ok) {
+        const data = await response.json();
+        console.error("Checkout error:", data);
+        throw new Error(data.error || "Failed to create checkout session");
+      }
+
+      const { url } = await response.json();
+      console.log("Checkout URL received:", url);
+      if (url) {
+        window.location.href = url;
+      } else {
+        console.error("No checkout URL in response");
+        throw new Error("No checkout URL received");
+      }
+    } catch (err: any) {
+      console.error("Checkout exception:", err);
+      setError(err.message || "Failed to start checkout. Please try again.");
+      setLoading(false);
     }
   }
 
@@ -207,7 +253,7 @@ export default function HomePage() {
   const filteredResults = [...results]
     .filter((video) => {
       // Subscriber cap logic
-      if (IS_PRO && includeScaleUpChannels) {
+      if (userIsPro && includeScaleUpChannels) {
         // Scale-up toggle is ON: respect the selected cap
         if (subscriberCap === "<10k" && video.subscribers >= 10_000) return false;
         if (subscriberCap === "<50k" && video.subscribers >= 50_000) return false;
@@ -237,7 +283,14 @@ export default function HomePage() {
   const hasFilteredResults = filteredResults.length > 0;
   const hasVisibleResults = visibleResults.length > 0;
   const isFreeLimitReached = filteredResults.length > FREE_LIMIT;
-  const areFiltersActive = (IS_PRO && subscriberCap !== "<50k") || viewFloor !== ">=1k";
+  const areFiltersActive = (userIsPro && subscriberCap !== "<50k") || viewFloor !== ">=1k";
+
+  // Debug: Log when button should be visible
+  useEffect(() => {
+    if (isFreeLimitReached) {
+      console.log("Unlock button should be visible. filteredResults.length:", filteredResults.length, "FREE_LIMIT:", FREE_LIMIT);
+    }
+  }, [isFreeLimitReached, filteredResults.length]);
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-50">
@@ -383,7 +436,7 @@ export default function HomePage() {
         </form>
 
         {/* Saved Searches Section */}
-        {IS_PRO && savedSearches.length > 0 && (
+        {userIsPro && savedSearches.length > 0 && (
           <div className="max-w-2xl mx-auto mb-6">
             <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
@@ -422,7 +475,7 @@ export default function HomePage() {
         )}
 
         {/* Saved Searches Info for Free Users */}
-        {!IS_PRO && hasBaseResults && (
+        {!userIsPro && hasBaseResults && (
           <div className="max-w-2xl mx-auto mb-4">
             <p className="text-xs text-neutral-500 text-center">
               Pro users can save searches to power their weekly personalized outlier feed
@@ -431,7 +484,7 @@ export default function HomePage() {
         )}
 
         {/* Save Search Button */}
-        {IS_PRO && hasBaseResults && query.trim() !== "" && (
+        {userIsPro && hasBaseResults && query.trim() !== "" && (
           <div className="max-w-2xl mx-auto mb-4">
             <button
               onClick={saveSearch}
@@ -466,10 +519,10 @@ export default function HomePage() {
                     onChange={(e) =>
                       setSubscriberCap(e.target.value as SubscriberCap)
                     }
-                    disabled={!IS_PRO}
-                    title={!IS_PRO ? "Filter out channels bigger than yours (Pro)" : undefined}
+                    disabled={!userIsPro}
+                    title={!userIsPro ? "Filter out channels bigger than yours (Pro)" : undefined}
                     className={`bg-neutral-900 border border-neutral-700 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500/70 ${
-                      !IS_PRO ? "opacity-60 cursor-not-allowed" : ""
+                      !userIsPro ? "opacity-60 cursor-not-allowed" : ""
                     }`}
                   >
                     <option value="<10k">≤10k</option>
@@ -480,7 +533,7 @@ export default function HomePage() {
                     <option value="<1M">≤1M+</option>
                     <option value="nolimit">Unlimited</option>
                   </select>
-                  {!IS_PRO && (
+                  {!userIsPro && (
                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[0.6rem] font-semibold px-1 rounded" title="Filter out channels bigger than yours (Pro)">
                       Pro
                     </span>
@@ -510,7 +563,7 @@ export default function HomePage() {
         )}
 
         {/* Advanced Toggle: Include Scale-Up Channels */}
-        {hasBaseResults && IS_PRO && (
+        {hasBaseResults && userIsPro && (
           <div className="max-w-3xl mx-auto mb-4">
             <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
               <input
@@ -680,16 +733,32 @@ export default function HomePage() {
             )}
 
             {isFreeLimitReached && (
-              <div className="mt-4 max-w-3xl mx-auto p-3 bg-neutral-900/50 border border-neutral-800 rounded-lg text-xs text-neutral-400 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div 
+                className="mt-4 max-w-3xl mx-auto p-3 bg-neutral-900/50 border border-neutral-800 rounded-lg text-xs text-neutral-400 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+                style={{ pointerEvents: "auto" }}
+                onClick={(e) => {
+                  // Prevent parent from capturing clicks
+                  if (e.target === e.currentTarget) {
+                    e.stopPropagation();
+                  }
+                }}
+              >
                 <p>
                   Showing 5 of {filteredResults.length} breakout videos.
                 </p>
                 <button
                   type="button"
-                  disabled
+                  id="unlock-full-results-button-main"
+                  data-testid="unlock-full-results-button"
+                  onClick={() => {
+                    console.log("🔴 MAIN PAGE BUTTON CLICKED - Direct onClick handler");
+                    handleCheckout();
+                  }}
+                  disabled={loading}
+                  style={{ pointerEvents: "auto", zIndex: 10, position: "relative", cursor: "pointer" }}
                   className="shrink-0 rounded-md bg-red-500/90 text-xs font-semibold px-3 py-1.5 text-white hover:bg-red-500 disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
                 >
-                  Unlock full results
+                  {loading ? "Loading..." : "Unlock full results"}
                 </button>
               </div>
             )}
