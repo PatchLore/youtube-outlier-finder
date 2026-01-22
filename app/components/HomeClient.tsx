@@ -120,8 +120,6 @@ export function HomeClient() {
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
   const [viewFloor, setViewFloor] = useState<ViewFloor>(">=1k");
   const [sortBy, setSortBy] = useState<SortOption>("multiplier");
-  const [includeScaleUpChannels, setIncludeScaleUpChannels] = useState(false);
-  const [showScaleUpWarning, setShowScaleUpWarning] = useState(false);
 
   // Get user and calculate plan
   const { user, isLoaded } = useUser();
@@ -174,12 +172,6 @@ export function HomeClient() {
     }
   }
 
-  function handleScaleUpToggle(enabled: boolean) {
-    setIncludeScaleUpChannels(enabled);
-    if (enabled) {
-      setShowScaleUpWarning(true);
-    }
-  }
 
   async function handleCheckout() {
     console.log("handleCheckout called");
@@ -250,8 +242,8 @@ export function HomeClient() {
   const filteredResults = [...results]
     .filter((video) => {
       // Subscriber cap logic
-      if (userIsPro && includeScaleUpChannels) {
-        // Scale-up toggle is ON: respect the selected cap
+      if (userIsPro) {
+        // Pro users: apply selected cap from dropdown
         if (subscriberCap === "<10k" && video.subscribers >= 10_000) return false;
         if (subscriberCap === "<50k" && video.subscribers >= 50_000) return false;
         if (subscriberCap === "<100k" && video.subscribers >= 100_000) return false;
@@ -260,7 +252,7 @@ export function HomeClient() {
         if (subscriberCap === "<1M" && video.subscribers >= 1_000_000) return false;
         // "nolimit" allows all channels
       } else {
-        // Scale-up toggle is OFF (or free user): cap at 50k
+        // Free users: hard cap at 50k
         if (video.subscribers >= 50_000) return false;
       }
       // View floor
@@ -566,49 +558,6 @@ export function HomeClient() {
           </div>
         )}
 
-        {/* Advanced Toggle: Include Scale-Up Channels */}
-        {hasBaseResults && userIsPro && (
-          <div className="max-w-3xl mx-auto mb-4">
-            <label className="flex items-start gap-2 text-xs text-neutral-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includeScaleUpChannels}
-                onChange={(e) => handleScaleUpToggle(e.target.checked)}
-                className="w-4 h-4 mt-0.5 rounded border-neutral-700 bg-neutral-900 text-red-500 focus:ring-1 focus:ring-red-500/70"
-              />
-              <div className="flex-1">
-                <span className="font-medium">Include larger channels</span>
-                <p className="text-[0.65rem] text-neutral-500 leading-tight mt-0.5">
-                  Show videos from channels above your selected cap. Useful for trend analysis, but less replicable for small creators.
-                </p>
-              </div>
-            </label>
-          </div>
-        )}
-
-        {/* Scale-Up Warning Message */}
-        {showScaleUpWarning && includeScaleUpChannels && (
-          <div className="max-w-3xl mx-auto mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-            <div className="flex items-start gap-2">
-              <span className="text-yellow-400 text-sm">⚠️</span>
-              <div className="flex-1">
-                <p className="text-xs text-yellow-300 font-medium mb-1">
-                  Larger channels included.
-                </p>
-                <p className="text-xs text-yellow-400/80">
-                  These results are best used for trend study, not direct replication.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowScaleUpWarning(false)}
-                className="text-yellow-400/60 hover:text-yellow-400 text-xs"
-                title="Dismiss warning"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        )}
 
         {hasBaseResults && !hasFilteredResults && (
           <p className="text-center text-sm text-neutral-500 mb-4">
