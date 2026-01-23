@@ -13,12 +13,6 @@ export async function POST() {
     // Get and validate Stripe secret key
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     
-    // TEMPORARY DEBUG: Log key prefix to identify source
-    console.log(
-      "[Stripe Debug] STRIPE_SECRET_KEY prefix:",
-      stripeSecretKey?.slice(0, 7) || "undefined"
-    );
-    
     if (!stripeSecretKey) {
       console.error("[Stripe] STRIPE_SECRET_KEY is not configured");
       return NextResponse.json(
@@ -74,11 +68,9 @@ export async function POST() {
       ],
       success_url: `${appUrl}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}`,
-      // Store Clerk user ID in metadata so webhook can identify the user
-      // The webhook will use this to update the user's publicMetadata with plan: "pro"
-      metadata: {
-        clerkUserId: userId,
-      },
+      // Use client_reference_id to identify the Clerk user in the webhook
+      // This is the recommended way to pass user identifiers to Stripe
+      client_reference_id: userId,
     });
 
     return NextResponse.json({ url: session.url });

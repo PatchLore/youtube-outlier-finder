@@ -172,6 +172,15 @@ export function HomeClient() {
     }
   }
 
+  function handleExampleSearch(exampleQuery: string) {
+    setQuery(exampleQuery);
+    // Trigger search automatically
+    const form = document.querySelector("form");
+    if (form) {
+      form.requestSubmit();
+    }
+  }
+
 
   async function handleCheckout() {
     console.log("handleCheckout called");
@@ -521,6 +530,11 @@ export function HomeClient() {
       <div id="search" className="mx-auto max-w-7xl px-6 pb-16">
 
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto mb-8 space-y-3">
+          <div className="flex items-center justify-center gap-4 text-xs text-neutral-500 mb-2">
+            <span>Replicate winning video ideas</span>
+            <span>•</span>
+            <span>Explore rising niches</span>
+          </div>
           <div className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
@@ -552,6 +566,25 @@ export function HomeClient() {
           <p className="text-xs text-neutral-500 text-center">
             Combine niche and format for better results (e.g. "faceless youtube", "minecraft shorts")
           </p>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+            <span className="text-xs text-neutral-600">Try:</span>
+            {[
+              "faceless history facts",
+              "AI tools for students",
+              "study with me pomodoro",
+              "gaming challenge shorts",
+              "productivity apps review"
+            ].map((example) => (
+              <button
+                key={example}
+                type="button"
+                onClick={() => handleExampleSearch(example)}
+                className="text-xs text-neutral-400 hover:text-neutral-300 transition-colors underline decoration-neutral-600 hover:decoration-neutral-400"
+              >
+                {example}
+              </button>
+            ))}
+          </div>
           {error && (
             <p className="text-xs text-red-400 text-center">{error}</p>
           )}
@@ -568,7 +601,7 @@ export function HomeClient() {
                 </p>
               </div>
               <p className="text-xs text-neutral-500 mb-3">
-                Your saved searches power weekly email digests with personalized outlier recommendations (Pro feature)
+                Pro: Saved searches and weekly email digests (coming soon) with personalized outlier recommendations
               </p>
               <div className="flex flex-wrap gap-2">
                 {savedSearches.map((savedQuery) => (
@@ -600,7 +633,7 @@ export function HomeClient() {
         {!userIsPro && hasBaseResults && (
           <div className="max-w-2xl mx-auto mb-4">
             <p className="text-xs text-neutral-500 text-center">
-              Pro: Save searches and receive weekly email digests with personalized outlier recommendations
+              Pro: Saved searches and weekly email digests (coming soon) with personalized outlier recommendations
             </p>
           </div>
         )}
@@ -612,7 +645,7 @@ export function HomeClient() {
               onClick={saveSearch}
               disabled={savedSearches.includes(query.trim())}
               className="text-xs text-neutral-400 hover:text-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title={savedSearches.includes(query.trim()) ? "Search already saved" : "Save this search for weekly digests"}
+              title={savedSearches.includes(query.trim()) ? "Search already saved" : "Save this search (Pro: weekly email digests coming soon)"}
             >
               {savedSearches.includes(query.trim()) ? "✓ Saved" : "+ Save search"}
             </button>
@@ -635,7 +668,7 @@ export function HomeClient() {
             <div className="flex flex-wrap gap-3">
               <label className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-neutral-400">Subscriber cap</span>
+                  <span className="text-neutral-400">Show ideas already proven at scale (less replicable)</span>
                   <div className="relative">
                     <select
                       value={subscriberCap}
@@ -665,7 +698,7 @@ export function HomeClient() {
                 </div>
                 <p className="text-[0.65rem] text-neutral-500 leading-tight">
                   {userIsPro 
-                    ? "Focus on replicable ideas from channels your size. Higher caps show what works at scale."
+                    ? "Keeping this off focuses on ideas small creators can realistically replicate."
                     : "Free users see results from channels ≤50k. Pro unlocks unlimited results and custom subscriber filters."}
                 </p>
               </label>
@@ -714,15 +747,29 @@ export function HomeClient() {
                 Showing recently published videos that are currently outperforming expectations
               </p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {visibleResults.map((video) => (
-              <a
-                key={video.id}
-                href={`https://www.youtube.com/watch?v=${video.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden hover:border-neutral-700 hover:shadow-lg hover:shadow-black/20 transition-all cursor-pointer"
-              >
+            {filteredResults.length < 5 && filteredResults.length > 0 && (
+              <div className="max-w-3xl mx-auto mb-4 p-3 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+                <p className="text-xs text-neutral-300 text-center leading-relaxed">
+                  Only {filteredResults.length} {filteredResults.length === 1 ? "video is" : "videos are"} genuinely breaking out right now.
+                  <br />
+                  That scarcity is the signal — fewer competitors means more opportunity.
+                </p>
+              </div>
+            )}
+            <div className="relative">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {visibleResults.map((video, index) => (
+                <a
+                  key={video.id}
+                  href={`https://www.youtube.com/watch?v=${video.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`block bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden hover:border-neutral-700 hover:shadow-lg hover:shadow-black/20 transition-all cursor-pointer ${
+                    !userIsPro && isFreeLimitReached && index === visibleResults.length - 1
+                      ? "opacity-60"
+                      : ""
+                  }`}
+                >
                 <div className="relative w-full aspect-video bg-neutral-800">
                   <img
                     src={video.thumbnail}
@@ -743,6 +790,9 @@ export function HomeClient() {
                       >
                         {video.multiplier.toFixed(1)}×
                       </span>
+                      <p className="text-xs text-neutral-500 text-right">
+                        Getting {video.multiplier.toFixed(1)}× more views than this channel normally does.
+                      </p>
                       {getConfidenceTier(video.multiplier) && (
                         <span className="text-xs text-neutral-400">
                           {getConfidenceTier(video.multiplier)}
@@ -779,6 +829,22 @@ export function HomeClient() {
                 </div>
               </a>
             ))}
+              </div>
+              {!userIsPro && isFreeLimitReached && (
+                <>
+                  <div 
+                    className="absolute bottom-0 left-0 right-0 h-32 pointer-events-none"
+                    style={{
+                      background: "linear-gradient(to top, rgba(10, 10, 15, 0.95) 0%, rgba(10, 10, 15, 0.5) 50%, transparent 100%)"
+                    }}
+                  />
+                  <div className="mt-3 text-center">
+                    <p className="text-xs text-neutral-400">
+                      There are {filteredResults.length - FREE_LIMIT} more breakout video{filteredResults.length - FREE_LIMIT === 1 ? "" : "s"} hidden.
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Guidance for broad searches with few results */}
@@ -840,8 +906,23 @@ export function HomeClient() {
                     handleCheckout();
                   }}
                   disabled={loading}
-                  style={{ pointerEvents: "auto", zIndex: 10, position: "relative", cursor: "pointer" }}
-                  className="shrink-0 rounded-md bg-red-500/90 text-xs font-semibold px-3 py-1.5 text-white hover:bg-red-500 disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+                  style={{ 
+                    pointerEvents: "auto", 
+                    zIndex: 10, 
+                    position: "relative", 
+                    cursor: "pointer",
+                    background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                    boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
+                  }}
+                  className="shrink-0 inline-flex items-center justify-center rounded-xl text-xs font-semibold px-3 py-1.5 text-white transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                  onMouseEnter={(e) => {
+                    if (!loading) {
+                      e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
+                  }}
                 >
                   {loading ? "Loading..." : "Upgrade to Pro"}
                 </button>
@@ -852,8 +933,8 @@ export function HomeClient() {
               <div className="mt-4 max-w-3xl mx-auto text-center">
                 <p className="text-xs text-neutral-500">
                   {userIsPro 
-                    ? "Pro: Unlimited results, saved searches, and weekly email digests"
-                    : "Free: Up to 5 results per search. Pro: Unlimited results, saved searches, and weekly email digests."}
+                    ? "Pro: Unlimited results, saved searches, and weekly email digests (coming soon)"
+                    : "Free: Up to 5 results per search. Pro: Unlimited results, saved searches, and weekly email digests (coming soon)."}
                 </p>
               </div>
             )}

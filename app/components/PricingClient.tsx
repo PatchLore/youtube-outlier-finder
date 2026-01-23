@@ -162,11 +162,11 @@ export function PricingClient() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-white/40 mt-0.5">•</span>
-                <span>Save searches for weekly digests</span>
+                <span>Saved searches</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-white/40 mt-0.5">•</span>
-                <span>Weekly outlier digests by email</span>
+                <span>Weekly email digests (coming soon)</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-white/40 mt-0.5">•</span>
@@ -263,13 +263,13 @@ export function PricingClient() {
 
             {/* Weekly feed */}
             <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-white/60">
-              Weekly personalized outlier feed
+              Weekly email digests
             </div>
             <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/50">
               –
             </div>
             <div className="px-4 sm:px-6 py-4 border-b border-white/10 text-center text-white/80">
-              Based on your saved searches
+              Coming soon (based on saved searches)
             </div>
 
             {/* Alerts */}
