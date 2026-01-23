@@ -14,10 +14,21 @@ type OutlierResult = {
   subscribers: number;
   multiplier: number;
   outlier: boolean;
+  publishedAt?: string | null;
 };
 
 function formatNumber(num: number): string {
   return num.toLocaleString("en-US");
+}
+
+function getDaysAgo(publishedAt: string | null | undefined): number | null {
+  if (!publishedAt) return null;
+  const published = new Date(publishedAt);
+  if (isNaN(published.getTime())) return null;
+  const now = new Date();
+  const diffTime = now.getTime() - published.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays;
 }
 
 function getMultiplierBadgeColor(multiplier: number): string {
@@ -106,6 +117,7 @@ const FREE_LIMIT = 5;
 type SubscriberCap = "<10k" | "<50k" | "<100k" | "<250k" | "<500k" | "<1M" | "nolimit";
 type ViewFloor = ">=1k" | ">=5k" | ">=10k" | "nomin";
 type SortOption = "multiplier" | "views";
+type SearchMode = "momentum" | "proven";
 
 const SAVED_SEARCHES_KEY = "youtube-outlier-saved-searches";
 
@@ -120,6 +132,7 @@ export function HomeClient() {
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
   const [viewFloor, setViewFloor] = useState<ViewFloor>(">=1k");
   const [sortBy, setSortBy] = useState<SortOption>("multiplier");
+  const [searchMode, setSearchMode] = useState<SearchMode>("momentum");
 
   // Get user and calculate plan
   const { user, isLoaded } = useUser();
@@ -230,7 +243,7 @@ export function HomeClient() {
     setError(null);
 
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}&mode=${searchMode || "momentum"}`);
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -653,13 +666,30 @@ export function HomeClient() {
         )}
 
         {!loading && !error && results.length === 0 && query.trim() !== "" && (
-          <div className="text-center space-y-2 max-w-2xl mx-auto">
-            <p className="text-sm text-neutral-400">
-              No outlier videos found for this query.
-            </p>
-            <p className="text-xs text-neutral-500">
-              This means no videos in this niche have views that are 3× or more their channel&apos;s subscriber count. Try a different keyword or check back later as trends emerge.
-            </p>
+          <div className="max-w-2xl mx-auto p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+            <div className="text-center space-y-2">
+              {searchMode === "momentum" ? (
+                <>
+                  <p className="text-sm text-neutral-300 font-medium">
+                    No fresh breakouts in this niche right now.
+                  </p>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    That usually means low competition.
+                    <br />
+                    Switch to Study Vault to explore proven formats.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-neutral-300 font-medium">
+                    No proven outliers found for this niche yet.
+                  </p>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    This could indicate an untapped opportunity.
+                  </p>
+                </>
+              )}
+            </div>
           </div>
         )}
 
@@ -742,17 +772,54 @@ export function HomeClient() {
 
         {hasVisibleResults && (
           <>
+            {/* Search Mode Toggle */}
             <div className="max-w-3xl mx-auto mb-4">
-              <p className="text-xs text-neutral-500 text-center">
-                Showing recently published videos that are currently outperforming expectations
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSearchMode("momentum")}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                    searchMode === "momentum"
+                      ? "bg-purple-500/20 text-purple-300 border border-purple-500/50"
+                      : "bg-neutral-900/50 text-neutral-400 border border-neutral-800 hover:bg-neutral-800/50"
+                  }`}
+                >
+                  🔥 Breaking Now
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSearchMode("proven")}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                    searchMode === "proven"
+                      ? "bg-purple-500/20 text-purple-300 border border-purple-500/50"
+                      : "bg-neutral-900/50 text-neutral-400 border border-neutral-800 hover:bg-neutral-800/50"
+                  }`}
+                >
+                  📚 Study Vault
+                </button>
+              </div>
+              <p className="text-xs text-neutral-500 text-center mt-3">
+                {searchMode === "momentum"
+                  ? "Fresh videos gaining momentum right now"
+                  : "Proven formats that outperformed expectations"}
               </p>
             </div>
             {filteredResults.length < 5 && filteredResults.length > 0 && (
               <div className="max-w-3xl mx-auto mb-4 p-3 bg-neutral-900/50 border border-neutral-800 rounded-lg">
                 <p className="text-xs text-neutral-300 text-center leading-relaxed">
-                  Only {filteredResults.length} {filteredResults.length === 1 ? "video is" : "videos are"} genuinely breaking out right now.
-                  <br />
-                  That scarcity is the signal — fewer competitors means more opportunity.
+                  {searchMode === "momentum" ? (
+                    <>
+                      Fresh breakouts gaining traction right now.
+                      <br />
+                      That scarcity is the signal — fewer competitors means more opportunity.
+                    </>
+                  ) : (
+                    <>
+                      Formats that proved they can outperform.
+                      <br />
+                      These validated patterns show what consistently works in this niche.
+                    </>
+                  )}
                 </p>
               </div>
             )}
@@ -800,9 +867,29 @@ export function HomeClient() {
                       )}
                     </div>
                   </div>
-                  <p className="text-xs text-neutral-400 truncate">
-                    {video.channelTitle}
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-neutral-400 truncate">
+                      {video.channelTitle}
+                    </p>
+                    {(() => {
+                      const daysAgo = getDaysAgo(video.publishedAt);
+                      const isResurrected = daysAgo !== null && daysAgo > 180 && searchMode === "momentum";
+                      return (
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isResurrected && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                              Resurrected
+                            </span>
+                          )}
+                          {daysAgo !== null && (
+                            <span className="text-xs text-neutral-500 whitespace-nowrap">
+                              Published {daysAgo} {daysAgo === 1 ? "day" : "days"} ago
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                   {(() => {
                     const replicability = getReplicabilityLabel(video.subscribers);
                     return (
@@ -840,7 +927,7 @@ export function HomeClient() {
                   />
                   <div className="mt-3 text-center">
                     <p className="text-xs text-neutral-400">
-                      There are {filteredResults.length - FREE_LIMIT} more breakout video{filteredResults.length - FREE_LIMIT === 1 ? "" : "s"} hidden.
+                      There are {filteredResults.length - FREE_LIMIT} more {searchMode === "momentum" ? "fresh breakout" : "proven format"}{filteredResults.length - FREE_LIMIT === 1 ? "" : "s"} hidden.
                     </p>
                   </div>
                 </>
@@ -895,7 +982,7 @@ export function HomeClient() {
                 }}
               >
                 <p>
-                  Showing {userIsPro ? filteredResults.length : 5} of {filteredResults.length} breakout videos{!userIsPro && ". Upgrade to Pro to see all results"}
+                  Showing {userIsPro ? filteredResults.length : 5} of {filteredResults.length} {searchMode === "momentum" ? "fresh breakouts" : "proven formats"}{!userIsPro && ". Upgrade to Pro to see all results"}
                 </p>
                 <button
                   type="button"

@@ -169,6 +169,10 @@ export async function GET(req: Request) {
       }
     }
 
+    // Parse mode query parameter (default to "momentum")
+    const mode = url.searchParams.get("mode") || "momentum";
+    const isMomentumMode = mode === "momentum";
+
     // Parse optional freshness/velocity options from query params
     const maxDaysOld = url.searchParams.get("maxDaysOld");
     const useVelocity = url.searchParams.get("useVelocity") === "true";
@@ -180,6 +184,11 @@ export async function GET(req: Request) {
             useVelocityWeighting: useVelocity,
           }
         : undefined;
+
+    // Calculate date threshold for momentum mode (60 days ago)
+    const momentumDateThreshold = isMomentumMode
+      ? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
+      : null;
 
     // Combine video and channel data, calculate multipliers, filter outliers
     const results = (videoData.items || [])
@@ -199,9 +208,19 @@ export async function GET(req: Request) {
           subscribers,
           multiplier,
           outlier: isOutlierVideo(views, subscribers, publishedAt, outlierOptions),
+          publishedAt: publishedAt || null,
         };
       })
-      .filter((v: any) => v.outlier);
+      .filter((v: any) => {
+        // Filter by date for momentum mode
+        if (isMomentumMode && momentumDateThreshold && v.publishedAt) {
+          const publishedDate = new Date(v.publishedAt);
+          if (publishedDate < momentumDateThreshold) {
+            return false;
+          }
+        }
+        return v.outlier;
+      });
 
     // Limit results for free users
     const limitedResults = isPro ? results : results.slice(0, FREE_RESULT_LIMIT);
