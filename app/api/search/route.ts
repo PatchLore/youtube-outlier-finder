@@ -191,7 +191,7 @@ export async function GET(req: Request) {
       : null;
 
     // Combine video and channel data, calculate multipliers, filter outliers
-    const results = (videoData.items || [])
+    const allVideos = (videoData.items || [])
       .map((video: any) => {
         const channelId = video?.snippet?.channelId;
         const views = Number(video?.statistics?.viewCount || 0);
@@ -210,20 +210,102 @@ export async function GET(req: Request) {
           outlier: isOutlierVideo(views, subscribers, publishedAt, outlierOptions),
           publishedAt: publishedAt || null,
         };
-      })
-      .filter((v: any) => {
-        // Filter by date for momentum mode
-        if (isMomentumMode && momentumDateThreshold && v.publishedAt) {
-          const publishedDate = new Date(v.publishedAt);
-          if (publishedDate < momentumDateThreshold) {
-            return false;
-          }
-        }
-        return v.outlier;
       });
+
+    // Filter strict outliers
+    const results = allVideos.filter((v: any) => {
+      // Filter by date for momentum mode
+      if (isMomentumMode && momentumDateThreshold && v.publishedAt) {
+        const publishedDate = new Date(v.publishedAt);
+        if (publishedDate < momentumDateThreshold) {
+          return false;
+        }
+      }
+      return v.outlier;
+    });
+
+    // Detect near-misses if strict results are empty
+    let nearMisses: any[] = [];
+    if (results.length === 0) {
+      const now = new Date();
+      const days45Ago = new Date(now.getTime() - 45 * 24 * 60 * 60 * 1000);
+      const days31Ago = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000);
+
+      nearMisses = allVideos
+        .filter((v: any) => {
+          // Must meet view floor
+          if (v.views < 1_000) return false;
+          
+          // Must beat channel average
+          if (v.multiplier <= 1) return false;
+
+          // For momentum mode, still respect a relaxed date threshold (45 days)
+          if (isMomentumMode && v.publishedAt) {
+            const publishedDate = new Date(v.publishedAt);
+            if (publishedDate < days45Ago) {
+              return false;
+            }
+          }
+
+          // Check if it's a near-miss: multiplier between 2.5× and 2.99×
+          const isMultiplierNearMiss = v.multiplier >= 2.5 && v.multiplier < 3.0;
+
+          // Check if it's a near-miss: published between 31–45 days ago (momentum mode only)
+          let isDateNearMiss = false;
+          if (isMomentumMode && v.publishedAt) {
+            const publishedDate = new Date(v.publishedAt);
+            if (publishedDate >= days45Ago && publishedDate < days31Ago) {
+              isDateNearMiss = true;
+            }
+          }
+
+          return isMultiplierNearMiss || isDateNearMiss;
+        })
+        .slice(0, 3) // Limit to max 3
+        .map((v: any) => {
+          // Determine reason
+          let reason: string;
+          
+          // Check multiplier near-miss first
+          if (v.multiplier >= 2.5 && v.multiplier < 3.0) {
+            reason = `${v.multiplier.toFixed(1)}x_multiplier`;
+          } else if (isMomentumMode && v.publishedAt) {
+            // Check date near-miss
+            const publishedDate = new Date(v.publishedAt);
+            const daysAgo = Math.floor((now.getTime() - publishedDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (daysAgo >= 31 && daysAgo <= 45) {
+              reason = `published_${daysAgo}_days_ago`;
+            } else {
+              reason = "near_miss";
+            }
+          } else {
+            reason = "near_miss";
+          }
+
+          return {
+            id: v.id,
+            title: v.title,
+            thumbnail: v.thumbnail,
+            channelTitle: v.channelTitle,
+            views: v.views,
+            subscribers: v.subscribers,
+            multiplier: v.multiplier,
+            publishedAt: v.publishedAt,
+            reason,
+          };
+        });
+    }
 
     // Limit results for free users
     const limitedResults = isPro ? results : results.slice(0, FREE_RESULT_LIMIT);
+
+    // Return results with nearMisses if present
+    if (nearMisses.length > 0) {
+      return NextResponse.json({
+        results: limitedResults,
+        nearMisses,
+      });
+    }
 
     return NextResponse.json(limitedResults);
   } catch (err: any) {

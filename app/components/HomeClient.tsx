@@ -112,6 +112,90 @@ function getExampleRefinements(query: string): string[] {
   return unique.slice(0, 5);
 }
 
+function needsRefinement(query: string): boolean {
+  const trimmed = query.trim();
+  const words = trimmed.split(/\s+/);
+  const lowerQuery = trimmed.toLowerCase();
+  
+  // Check if query is too long (> 3 words)
+  if (words.length > 3) return true;
+  
+  // Check for restrictive keywords
+  const restrictiveKeywords = ["best", "top", "2024", "2025"];
+  return restrictiveKeywords.some(keyword => lowerQuery.includes(keyword));
+}
+
+function generateRefinementSuggestions(query: string): string[] {
+  const lowerQuery = query.toLowerCase();
+  const words = query.split(/\s+/).filter(w => w.trim().length > 0);
+  
+  // 1. Core topic: Remove restrictive keywords
+  const restrictiveWords = ["best", "top", "2024", "2025", "the", "a", "an"];
+  const coreWords = words.filter(word => 
+    !restrictiveWords.includes(word.toLowerCase())
+  );
+  const coreTopic = coreWords.join(" ").trim();
+  
+  // 2. Format angle: Add format keyword
+  const formatKeywords = ["reviews", "explained", "shorts", "tutorial", "guide"];
+  let formatSuggestion = "";
+  if (coreTopic) {
+    // Check if query already has a format keyword
+    const hasFormat = formatKeywords.some(f => lowerQuery.includes(f));
+    if (!hasFormat) {
+      formatSuggestion = `${coreTopic} reviews`;
+    } else {
+      // Replace existing format or add new one
+      formatSuggestion = `${coreTopic} explained`;
+    }
+  }
+  
+  // 3. Adjacent niche: Simple synonym/keyword replacement
+  const synonymMap: Record<string, string> = {
+    "apps": "tools",
+    "app": "tools",
+    "productivity": "Notion alternatives",
+    "gaming": "gameplay",
+    "video": "content",
+    "channel": "creator",
+  };
+  
+  let adjacentNiche = "";
+  if (coreTopic) {
+    const coreLower = coreTopic.toLowerCase();
+    
+    // Special case: "productivity apps" -> "Notion alternatives"
+    if (coreLower.includes("productivity") && (coreLower.includes("app") || coreLower.includes("tool"))) {
+      adjacentNiche = "Notion alternatives";
+    } else {
+      // Try to find a synonym replacement
+      for (const [key, value] of Object.entries(synonymMap)) {
+        if (coreLower.includes(key)) {
+          adjacentNiche = coreLower.replace(new RegExp(key, "gi"), value);
+          break;
+        }
+      }
+      
+      // If no synonym found, try a simple variation
+      if (!adjacentNiche && coreWords.length > 0) {
+        if (coreLower.includes("app")) {
+          adjacentNiche = coreLower.replace(/app(s)?/gi, "tools");
+        } else {
+          // Generic: add "alternatives" or similar
+          adjacentNiche = `${coreWords[0]} alternatives`;
+        }
+      }
+    }
+  }
+  
+  // Return suggestions, filtering out empty ones and ensuring uniqueness
+  const suggestions = [coreTopic, formatSuggestion, adjacentNiche]
+    .filter(s => s && s.length > 0)
+    .filter((s, idx, arr) => arr.indexOf(s) === idx); // Remove duplicates
+  
+  return suggestions.slice(0, 3);
+}
+
 const FREE_LIMIT = 5;
 
 type SubscriberCap = "<10k" | "<50k" | "<100k" | "<250k" | "<500k" | "<1M" | "nolimit";
@@ -127,6 +211,10 @@ export function HomeClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedSearches, setSavedSearches] = useState<string[]>([]);
+  const [nearMisses, setNearMisses] = useState<(OutlierResult & { reason?: string })[]>([]);
+  const [showNearMisses, setShowNearMisses] = useState(false);
+  const [dismissedSoftLanding, setDismissedSoftLanding] = useState(false);
+  const [searchSavedConfirmation, setSearchSavedConfirmation] = useState(false);
 
   // Default to higher cap for Pro users to unlock benefits immediately
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
@@ -167,6 +255,24 @@ export function HomeClient() {
     
     if (!savedSearches.includes(trimmed)) {
       setSavedSearches([...savedSearches, trimmed]);
+    }
+  }
+
+  function handleSaveSearchForAlerts() {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    if (userIsPro) {
+      // Save the search
+      if (!savedSearches.includes(trimmed)) {
+        setSavedSearches([...savedSearches, trimmed]);
+      }
+      setSearchSavedConfirmation(true);
+      // Clear confirmation after 5 seconds
+      setTimeout(() => setSearchSavedConfirmation(false), 5000);
+    } else {
+      // Free user: trigger upgrade flow
+      handleCheckout();
     }
   }
 
@@ -241,6 +347,10 @@ export function HomeClient() {
 
     setLoading(true);
     setError(null);
+    setNearMisses([]); // Clear nearMisses on new search
+    setShowNearMisses(false); // Reset opt-in state
+    setDismissedSoftLanding(false); // Reset dismissal state
+    setSearchSavedConfirmation(false); // Reset confirmation
 
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}&mode=${searchMode || "momentum"}`);
@@ -252,7 +362,15 @@ export function HomeClient() {
       }
 
       const data = await res.json();
-      setResults(data || []);
+      // Handle response format: array (normal) or object with results + nearMisses
+      if (Array.isArray(data)) {
+        setResults(data || []);
+        setNearMisses([]);
+      } else {
+        setResults(data.results || []);
+        setNearMisses(data.nearMisses || []);
+        // nearMisses stored but not rendered automatically (Layer 1: Soft Landing UI pending)
+      }
     } catch (err: any) {
       setError(err.message || "Unable to search for outliers. Please try again.");
       setResults([]);
@@ -288,7 +406,12 @@ export function HomeClient() {
       return b.multiplier - a.multiplier;
     });
 
-  const visibleResults = userIsPro ? filteredResults : filteredResults.slice(0, FREE_LIMIT);
+  // Merge nearMisses into results if user opted in
+  const resultsToDisplay = showNearMisses && nearMisses.length > 0
+    ? [...filteredResults, ...nearMisses]
+    : filteredResults;
+  
+  const visibleResults = userIsPro ? resultsToDisplay : resultsToDisplay.slice(0, FREE_LIMIT);
 
   const hasBaseResults = results.length > 0;
   const hasFilteredResults = filteredResults.length > 0;
@@ -665,30 +788,183 @@ export function HomeClient() {
           </div>
         )}
 
-        {!loading && !error && results.length === 0 && query.trim() !== "" && (
-          <div className="max-w-2xl mx-auto p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
-            <div className="text-center space-y-2">
-              {searchMode === "momentum" ? (
-                <>
+        {/* Soft Landing: Near-miss results */}
+        {!loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
+          <div className="max-w-3xl mx-auto mb-6 p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+            <div className="space-y-4">
+              <div className="text-center">
+                <p className="text-sm font-semibold text-neutral-200 mb-1">
+                  No fresh breakouts in the last 30 days
+                </p>
+                <p className="text-xs text-neutral-400">
+                  But we found {nearMisses.length} {nearMisses.length === 1 ? "video" : "videos"} that nearly qualify
+                </p>
+              </div>
+
+              {/* Near-miss cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {nearMisses.map((video) => {
+                  const daysAgo = video.publishedAt ? getDaysAgo(video.publishedAt) : null;
+                  const reasonText = video.reason?.includes("multiplier")
+                    ? `Multiplier just below threshold (${video.multiplier.toFixed(1)}×)`
+                    : video.reason?.includes("published")
+                    ? `Published ${daysAgo} days ago`
+                    : "Near-miss";
+                  
+                  return (
+                    <div
+                      key={video.id}
+                      className="bg-neutral-950 border border-neutral-700 rounded-lg p-3 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-xs font-medium text-neutral-300 line-clamp-2 flex-1">
+                          {video.title}
+                        </h4>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 shrink-0">
+                          Near-miss
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-400 truncate">
+                        {video.channelTitle}
+                      </p>
+                      <p className="text-xs text-neutral-500 italic">
+                        {reasonText}
+                      </p>
+                      <p className="text-xs text-neutral-500 font-medium">
+                        Not a full breakout
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-neutral-500">
+                        <span>{formatNumber(video.views)} views</span>
+                        <span>•</span>
+                        <span>{formatNumber(video.subscribers)} subs</span>
+                        <span>•</span>
+                        <span>{video.multiplier.toFixed(1)}×</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Controls */}
+              <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNearMisses(true)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+                  style={{
+                    background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                    boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
+                  }}
+                >
+                  Show these anyway
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDismissedSoftLanding(true)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all duration-300 backdrop-blur-md border border-white/20 hover:bg-white/10"
+                  style={{ background: "rgba(255, 255, 255, 0.05)" }}
+                >
+                  Keep strict filters
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Search Refinement Hint - Show when strict results === 0 and query needs refinement */}
+        {!loading && !error && results.length === 0 && query.trim() !== "" && needsRefinement(query) && (
+          <div className="max-w-2xl mx-auto">
+            <div className="p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+              <div className="space-y-3">
+                <p className="text-xs text-neutral-400 text-center">
+                  Breakout videos rarely use formal phrases like &apos;best&apos; or years in titles.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {generateRefinementSuggestions(query).map((suggestion, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setQuery(suggestion);
+                        const form = document.querySelector("form");
+                        if (form) {
+                          form.requestSubmit();
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-md text-xs text-neutral-300 hover:bg-neutral-750 hover:border-neutral-600 transition-colors"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            {/* Primary CTA: Save Search & Get Alerted */}
+            <div className="p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+              <div className="text-center space-y-4">
+                <div>
+                  <p className="text-base font-semibold text-neutral-200 mb-2">
+                    No fresh breakouts in this niche right now — want to know when that changes?
+                  </p>
+                  {searchSavedConfirmation ? (
+                    <p className="text-sm text-green-400 font-medium">
+                      ✓ We&apos;ll notify you when momentum appears
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSaveSearchForAlerts}
+                      className="inline-flex items-center justify-center px-6 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+                      style={{
+                        background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                        boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
+                      }}
+                    >
+                      Save this search & get alerted
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Secondary empty state message */}
+            <div className="p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+              <div className="text-center space-y-3">
+                <div>
                   <p className="text-sm text-neutral-300 font-medium">
                     No fresh breakouts in this niche right now.
                   </p>
-                  <p className="text-xs text-neutral-400 leading-relaxed">
-                    That usually means low competition.
-                    <br />
-                    Switch to Study Vault to explore proven formats.
+                  <p className="text-xs text-neutral-400 leading-relaxed mt-2">
+                    That usually means low competition — which is an opportunity.
                   </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-neutral-300 font-medium">
-                    No proven outliers found for this niche yet.
-                  </p>
-                  <p className="text-xs text-neutral-400 leading-relaxed">
-                    This could indicate an untapped opportunity.
-                  </p>
-                </>
-              )}
+                </div>
+                {searchMode === "momentum" && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchMode("proven")}
+                    className="text-xs text-purple-400 hover:text-purple-300 underline transition-colors"
+                  >
+                    Switch to Study Vault to explore proven formats
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
