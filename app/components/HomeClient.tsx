@@ -375,6 +375,7 @@ export function HomeClient() {
   const [risingSignals, setRisingSignals] = useState<OutlierResult[]>([]);
   const [showRisingSignals, setShowRisingSignals] = useState(false);
   const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
 
   // Default to higher cap for Pro users to unlock benefits immediately
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
@@ -512,6 +513,7 @@ export function HomeClient() {
 
     setLoading(true);
     setError(null);
+    setHasSearched(true); // Mark that a search has been executed
     setNearMisses([]); // Clear nearMisses on new search
     setNicheAnalysis(null); // Clear niche analysis on new search
     setRisingSignals([]); // Clear rising signals on new search
@@ -996,7 +998,7 @@ export function HomeClient() {
         )}
 
         {/* Soft Landing: Near-miss results */}
-        {!loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
+        {hasSearched && !loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
           <div className="max-w-3xl mx-auto mb-6 p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg">
             <div className="space-y-4">
               <div className="text-center space-y-2">
@@ -1088,7 +1090,7 @@ export function HomeClient() {
         )}
 
         {/* Search Refinement Hint - Show when strict results === 0 and query needs refinement */}
-        {!loading && !error && results.length === 0 && query.trim() !== "" && needsRefinement(query) && (
+        {hasSearched && !loading && !error && results.length === 0 && query.trim() !== "" && needsRefinement(query) && (
           <div className="max-w-2xl mx-auto">
             <div className="p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
               <div className="space-y-3">
@@ -1118,7 +1120,7 @@ export function HomeClient() {
           </div>
         )}
 
-        {!loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
+        {hasSearched && !loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
           <div className="max-w-2xl mx-auto space-y-4">
             {/* Market Heat Check Card - Shows niche intelligence when no breakouts found */}
             {nicheAnalysis && (
@@ -1211,7 +1213,7 @@ export function HomeClient() {
                   )}
 
                   {/* Rising Signals info in Market Heat Check (if available) */}
-                  {risingSignals.length > 0 && (
+                  {hasSearched && risingSignals.length > 0 && (
                     <div className="pt-3 border-t border-neutral-800">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-semibold text-neutral-300">
@@ -1779,7 +1781,7 @@ export function HomeClient() {
 
         {/* Rising Signals Section - Opt-in, Pro-only */}
         {/* Show when rising signals exist, regardless of main results */}
-        {risingSignals.length > 0 && (
+        {hasSearched && risingSignals.length > 0 && (
           <div className="max-w-3xl mx-auto mt-8">
             {/* Toggle/CTA Header */}
             <div className="mb-4 p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
