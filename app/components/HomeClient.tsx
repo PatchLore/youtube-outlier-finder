@@ -15,6 +15,15 @@ type OutlierResult = {
   multiplier: number;
   outlier: boolean;
   publishedAt?: string | null;
+  // Tier classification metadata (from backend)
+  outlierTier?: string[] | null;
+  // Velocity and engagement metrics
+  viewsPerDay?: number | null;
+  likeRatio?: number | null;
+  // Niche context
+  nicheAverageMultiplier?: number | null;
+  // Near-miss metadata (for soft landing UI)
+  reason?: string | null;
 };
 
 function formatNumber(num: number): string {
@@ -69,6 +78,87 @@ function getReplicabilityLabel(subscribers: number): {
       subtext: "Strong trend, requires serious execution",
     };
   }
+}
+
+function getTierBadgeInfo(tier: string): {
+  label: string;
+  icon: string;
+  color: string;
+  explanation: string;
+} | null {
+  switch (tier) {
+    case "breakout":
+      return {
+        label: "Breakout",
+        icon: "💎",
+        color: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+        explanation: "3×+ multiplier — significantly outperforming channel size",
+      };
+    case "emerging":
+      return {
+        label: "Emerging",
+        icon: "📈",
+        color: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+        explanation: "High velocity — gaining views faster than expected",
+      };
+    case "high_signal":
+      return {
+        label: "High Signal",
+        icon: "⚡",
+        color: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+        explanation: "Strong engagement — unusually high like-to-view ratio",
+      };
+    case "niche_outlier":
+      return {
+        label: "Niche Outlier",
+        icon: "🎯",
+        color: "bg-green-500/20 text-green-300 border-green-500/30",
+        explanation: "Outperforming niche average — stands out in this search",
+      };
+    default:
+      return null;
+  }
+}
+
+function getPrimaryTier(tiers: string[] | null | undefined): string | null {
+  if (!tiers || tiers.length === 0) return null;
+  // Priority order: breakout > emerging > high_signal > niche_outlier
+  if (tiers.includes("breakout")) return "breakout";
+  if (tiers.includes("emerging")) return "emerging";
+  if (tiers.includes("high_signal")) return "high_signal";
+  if (tiers.includes("niche_outlier")) return "niche_outlier";
+  return tiers[0]; // Fallback to first tier
+}
+
+function buildExplanation(video: OutlierResult): string {
+  const parts: string[] = [];
+  
+  // Start with tier explanation if available
+  const primaryTier = getPrimaryTier(video.outlierTier);
+  if (primaryTier) {
+    const tierInfo = getTierBadgeInfo(primaryTier);
+    if (tierInfo) {
+      parts.push(tierInfo.explanation);
+    }
+  }
+  
+  // Add velocity signal if high (threshold: >500 views/day indicates high velocity)
+  if (video.viewsPerDay !== null && video.viewsPerDay !== undefined && video.viewsPerDay > 500) {
+    parts.push("High velocity");
+  }
+  
+  // Add engagement signal if strong (threshold: >2% like ratio indicates strong engagement)
+  if (video.likeRatio !== null && video.likeRatio !== undefined && video.likeRatio > 0.02) {
+    parts.push("Strong engagement");
+  }
+  
+  // If we have any metadata-based explanation, use it
+  if (parts.length > 0) {
+    return parts.join(" • ");
+  }
+  
+  // Fallback to original explanation
+  return `This video has ${video.multiplier.toFixed(1)}× more views than the channel's subscriber count, indicating it broke through beyond its existing audience.`;
 }
 
 function getExampleRefinements(query: string): string[] {
@@ -302,9 +392,7 @@ export function HomeClient() {
 
 
   async function handleCheckout() {
-    console.log("handleCheckout called");
     try {
-      console.log("Starting checkout...");
       setLoading(true);
       const response = await fetch("/api/checkout", {
         method: "POST",
@@ -313,24 +401,18 @@ export function HomeClient() {
         },
       });
 
-      console.log("Checkout response:", response.status, response.statusText);
-
       if (!response.ok) {
         const data = await response.json();
-        console.error("Checkout error:", data);
         throw new Error(data.error || "Failed to create checkout session");
       }
 
       const { url } = await response.json();
-      console.log("Checkout URL received:", url);
       if (url) {
         window.location.href = url;
       } else {
-        console.error("No checkout URL in response");
         throw new Error("No checkout URL received");
       }
     } catch (err: any) {
-      console.error("Checkout exception:", err);
       setError(err.message || "Failed to start checkout. Please try again.");
       setLoading(false);
     }
@@ -419,12 +501,6 @@ export function HomeClient() {
   const isFreeLimitReached = filteredResults.length > FREE_LIMIT;
   const areFiltersActive = (userIsPro && subscriberCap !== "<50k") || viewFloor !== ">=1k";
 
-  // Debug: Log when button should be visible
-  useEffect(() => {
-    if (isFreeLimitReached) {
-      console.log("Unlock button should be visible. filteredResults.length:", filteredResults.length, "FREE_LIMIT:", FREE_LIMIT);
-    }
-  }, [isFreeLimitReached, filteredResults.length]);
 
   return (
     <main className="min-h-screen text-white overflow-x-hidden" style={{ background: "#0a0a0f" }}>
@@ -1136,11 +1212,37 @@ export function HomeClient() {
                       <p className="text-xs text-neutral-500 text-right">
                         Getting {video.multiplier.toFixed(1)}× more views than this channel normally does.
                       </p>
-                      {getConfidenceTier(video.multiplier) && (
-                        <span className="text-xs text-neutral-400">
-                          {getConfidenceTier(video.multiplier)}
-                        </span>
-                      )}
+                      {(() => {
+                        const primaryTier = getPrimaryTier(video.outlierTier);
+                        const tierInfo = primaryTier ? getTierBadgeInfo(primaryTier) : null;
+                        if (tierInfo) {
+                          return (
+                            <div className="group relative">
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${tierInfo.color} cursor-help`}
+                              >
+                                <span>{tierInfo.icon}</span>
+                                <span>{tierInfo.label}</span>
+                              </span>
+                              <div className="absolute right-0 top-full mt-1 w-48 p-2 bg-neutral-900 border border-neutral-700 rounded-md text-xs text-neutral-300 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 shadow-lg">
+                                {tierInfo.explanation}
+                                {video.outlierTier && video.outlierTier.length > 1 && (
+                                  <div className="mt-2 pt-2 border-t border-neutral-700">
+                                    <div className="text-xs text-neutral-400">Also: {video.outlierTier.filter(t => t !== primaryTier).join(", ")}</div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        } else if (getConfidenceTier(video.multiplier)) {
+                          return (
+                            <span className="text-xs text-neutral-400">
+                              {getConfidenceTier(video.multiplier)}
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2">
@@ -1166,6 +1268,29 @@ export function HomeClient() {
                       );
                     })()}
                   </div>
+                  {/* Compact Signals Row */}
+                  {((video.viewsPerDay !== null && video.viewsPerDay !== undefined) || 
+                    (video.likeRatio !== null && video.likeRatio !== undefined)) && (
+                    <div className="flex items-center gap-3 text-xs text-neutral-500">
+                      {video.viewsPerDay !== null && video.viewsPerDay !== undefined && (
+                        <span className="flex items-center gap-1">
+                          <span className="text-neutral-400">📈</span>
+                          <span>
+                            {video.viewsPerDay >= 1000
+                              ? `${(video.viewsPerDay / 1000).toFixed(1)}k`
+                              : Math.round(video.viewsPerDay).toLocaleString()}{" "}
+                            views/day
+                          </span>
+                        </span>
+                      )}
+                      {video.likeRatio !== null && video.likeRatio !== undefined && (
+                        <span className="flex items-center gap-1">
+                          <span className="text-neutral-400">⚡</span>
+                          <span>{(video.likeRatio * 100).toFixed(1)}% engagement</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {(() => {
                     const replicability = getReplicabilityLabel(video.subscribers);
                     return (
@@ -1182,7 +1307,7 @@ export function HomeClient() {
                     );
                   })()}
                   <p className="text-xs text-neutral-500 leading-relaxed">
-                    This video has {video.multiplier.toFixed(1)}× more views than the channel's subscriber count, indicating it broke through beyond its existing audience.
+                    {buildExplanation(video)}
                   </p>
                   <div className="flex items-center gap-3 text-xs text-neutral-500">
                     <span>{formatNumber(video.views)} views</span>
@@ -1265,7 +1390,6 @@ export function HomeClient() {
                   id="unlock-full-results-button-main"
                   data-testid="unlock-full-results-button"
                   onClick={() => {
-                    console.log("🔴 MAIN PAGE BUTTON CLICKED - Direct onClick handler");
                     handleCheckout();
                   }}
                   disabled={loading}

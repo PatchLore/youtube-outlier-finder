@@ -40,6 +40,110 @@ export function calculateViewsPerDay(
 }
 
 /**
+ * Determines the velocity threshold for the top 10-15% of videos in a search set
+ * Uses relative comparison to identify accelerating videos
+ * 
+ * @param viewsPerDayArray Array of viewsPerDay values from the current search set (can include nulls)
+ * @param percentile Percentile to use for threshold (default: 0.125 = 12.5%, middle of 10-15% range)
+ * @returns The threshold value, or null if insufficient data
+ */
+export function calculateVelocityThreshold(
+  viewsPerDayArray: (number | null)[],
+  percentile: number = 0.125
+): number | null {
+  // Filter out null values and invalid numbers
+  const validVelocities = viewsPerDayArray
+    .filter((v): v is number => v !== null && !isNaN(v) && v > 0)
+    .sort((a, b) => b - a); // Sort descending
+
+  // Need at least 10 videos to calculate meaningful percentile
+  if (validVelocities.length < 10) {
+    return null;
+  }
+
+  // Calculate index for top percentile (e.g., top 12.5% = index at 12.5% from top)
+  const thresholdIndex = Math.floor(validVelocities.length * percentile);
+  const clampedIndex = Math.max(0, Math.min(thresholdIndex, validVelocities.length - 1));
+  
+  return validVelocities[clampedIndex];
+}
+
+/**
+ * Determines if a video is "accelerating" based on relative velocity comparison
+ * A video is accelerating if its viewsPerDay is in the top 10-15% for the current search set
+ * 
+ * @param viewsPerDay Views per day for the video (can be null)
+ * @param velocityThreshold Threshold value from calculateVelocityThreshold (can be null)
+ * @returns true if video is accelerating, false otherwise
+ */
+export function isAccelerating(
+  viewsPerDay: number | null,
+  velocityThreshold: number | null
+): boolean {
+  // Safe handling: if either value is missing, return false
+  if (viewsPerDay === null || velocityThreshold === null) {
+    return false;
+  }
+
+  // Video is accelerating if its velocity is at or above the threshold
+  return viewsPerDay >= velocityThreshold;
+}
+
+/**
+ * Calculates the average like ratio from a search set
+ * Used for relative engagement comparison
+ * 
+ * @param likeRatios Array of like ratios from the search set (can include nulls)
+ * @returns The average like ratio, or null if insufficient data
+ */
+export function calculateAverageLikeRatio(
+  likeRatios: (number | null)[]
+): number | null {
+  // Filter out null values and invalid numbers
+  const validRatios = likeRatios.filter(
+    (r): r is number => r !== null && !isNaN(r) && r >= 0 && r <= 1
+  );
+
+  // Need at least 5 videos with valid like ratios for meaningful average
+  if (validRatios.length < 5) {
+    return null;
+  }
+
+  const sum = validRatios.reduce((acc, ratio) => acc + ratio, 0);
+  return sum / validRatios.length;
+}
+
+/**
+ * Calculates the average multiplier for the top results of a search set
+ * Used for niche-relative outlier detection
+ * 
+ * @param multipliers Array of multipliers from the search set (can include nulls/invalid)
+ * @param topN Number of top results to use for average (default: 10)
+ * @returns The average multiplier of top results, or null if insufficient data
+ */
+export function calculateNicheAverageMultiplier(
+  multipliers: (number | null)[],
+  topN: number = 10
+): number | null {
+  // Filter out null values and invalid numbers
+  const validMultipliers = multipliers.filter(
+    (m): m is number => m !== null && !isNaN(m) && m > 0
+  );
+
+  // Need at least 5 videos with valid multipliers for meaningful average
+  if (validMultipliers.length < 5) {
+    return null;
+  }
+
+  // Sort descending and take top N
+  const sorted = [...validMultipliers].sort((a, b) => b - a);
+  const topResults = sorted.slice(0, Math.min(topN, sorted.length));
+  
+  const sum = topResults.reduce((acc, mult) => acc + mult, 0);
+  return sum / topResults.length;
+}
+
+/**
  * Options for outlier detection with freshness/velocity support
  */
 export interface OutlierOptions {
@@ -54,6 +158,84 @@ export interface OutlierOptions {
    * When true, recent videos with high velocity get a boost
    */
   useVelocityWeighting?: boolean;
+}
+
+/**
+ * Tier classifications for outlier videos
+ * Tiers are additive - a video can have multiple tiers
+ */
+export type OutlierTier = "breakout" | "emerging" | "high_signal" | "niche_outlier";
+
+/**
+ * Options for classifying outlier tiers
+ */
+export interface ClassifyOutlierOptions {
+  views: number;
+  subscribers: number;
+  viewsPerDay: number | null;
+  likeRatio: number | null; // likes / views ratio (0-1)
+  nicheAverageMultiplier: number | null; // Average multiplier for top results in the search set
+  nicheAverageLikeRatio: number | null; // Average like ratio for all videos in the search set
+  breakoutCount: number; // Number of breakouts in the current search set (0 means no breakouts)
+  isFresh: boolean; // Whether video is considered "fresh" (e.g., within 30 days)
+}
+
+/**
+ * Classifies an outlier video into one or more tiers
+ * Tiers are additive - a video can qualify for multiple tiers
+ * 
+ * @param options Classification options
+ * @returns Array of tiers the video qualifies for
+ */
+export function classifyOutlier(options: ClassifyOutlierOptions): OutlierTier[] {
+  const { views, subscribers, viewsPerDay, likeRatio, nicheAverageMultiplier, nicheAverageLikeRatio, breakoutCount, isFresh } = options;
+  const tiers: OutlierTier[] = [];
+
+  // Calculate multiplier for tier checks
+  const multiplier = calculateViralityMultiplier(views, subscribers);
+
+  // 1. Breakout tier: existing 3× logic (unchanged)
+  if (multiplier >= 3 && views >= 1_000) {
+    tiers.push("breakout");
+  }
+
+  // 2. Emerging tier: high views/day relative to channel size
+  // Criteria: views/day > 500 AND views/day > (subscribers * 0.1)
+  // This identifies videos with high velocity relative to channel size
+  if (viewsPerDay !== null && viewsPerDay > 500) {
+    const safeSubscribers = subscribers === 0 || subscribers == null ? 100 : subscribers;
+    const relativeVelocity = viewsPerDay / safeSubscribers;
+    if (relativeVelocity > 0.1) {
+      tiers.push("emerging");
+    }
+  }
+
+  // 3. High signal tier: high engagement efficiency (likes/views)
+  // Criteria: like ratio significantly above average for search set AND views >= 1,000
+  // Uses relative comparison, not absolute thresholds
+  if (likeRatio !== null && nicheAverageLikeRatio !== null && views >= 1_000) {
+    // Video is high signal if its like ratio is at least 1.5x the average
+    // This identifies videos with unusually strong engagement relative to the search set
+    if (likeRatio > (nicheAverageLikeRatio * 1.5)) {
+      tiers.push("high_signal");
+    }
+  }
+
+  // 4. Niche outlier tier: fallback when no breakouts exist
+  // Criteria: multiplier >= (nicheAverage * 3.0) AND multiplier >= 2.0 AND breakoutCount === 0
+  // Only applies when no 3× breakouts exist in the search set
+  // This surfaces videos that significantly outperform their niche (≥200% above average)
+  // when no true breakouts are found
+  if (nicheAverageMultiplier !== null && multiplier >= 2.0 && options.breakoutCount === 0) {
+    // Video must exceed niche average by at least 200% (3x the average)
+    const isAboveNicheAverage = multiplier >= (nicheAverageMultiplier * 3.0);
+    const isNotBreakout = !tiers.includes("breakout");
+    if (isAboveNicheAverage && isNotBreakout) {
+      tiers.push("niche_outlier");
+    }
+  }
+
+  return tiers;
 }
 
 /**

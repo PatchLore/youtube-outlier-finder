@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { calculateViralityMultiplier, isOutlierVideo, type OutlierOptions } from "@/lib/outlier";
+import { calculateViralityMultiplier, calculateViewsPerDay, calculateAverageLikeRatio, calculateNicheAverageMultiplier, classifyOutlier, isOutlierVideo, type OutlierOptions } from "@/lib/outlier";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -195,9 +195,14 @@ export async function GET(req: Request) {
       .map((video: any) => {
         const channelId = video?.snippet?.channelId;
         const views = Number(video?.statistics?.viewCount || 0);
+        const likes = Number(video?.statistics?.likeCount || 0);
         const subscribers = channelMap[channelId] || 0;
         const publishedAt = video?.snippet?.publishedAt;
         const multiplier = calculateViralityMultiplier(views, subscribers);
+        const viewsPerDay = calculateViewsPerDay(views, publishedAt);
+        
+        // Calculate like ratio (likes / views), safe for missing likes
+        const likeRatio = views > 0 && likes > 0 ? likes / views : null;
 
         return {
           id: video?.id,
@@ -207,10 +212,20 @@ export async function GET(req: Request) {
           views,
           subscribers,
           multiplier,
+          viewsPerDay: viewsPerDay || null,
+          likeRatio: likeRatio || null,
           outlier: isOutlierVideo(views, subscribers, publishedAt, outlierOptions),
           publishedAt: publishedAt || null,
         };
       });
+
+    // Calculate average like ratio for relative engagement comparison
+    const likeRatios = allVideos.map((v: any) => v.likeRatio);
+    const nicheAverageLikeRatio = calculateAverageLikeRatio(likeRatios);
+
+    // Calculate average multiplier for top results (for niche-relative outlier detection)
+    const multipliers = allVideos.map((v: any) => v.multiplier);
+    const nicheAverageMultiplier = calculateNicheAverageMultiplier(multipliers);
 
     // Filter strict outliers
     const results = allVideos.filter((v: any) => {
@@ -223,6 +238,9 @@ export async function GET(req: Request) {
       }
       return v.outlier;
     });
+
+    // Count breakouts (videos with multiplier >= 3)
+    const breakoutCount = results.filter((v: any) => v.multiplier >= 3).length;
 
     // Detect near-misses if strict results are empty
     let nearMisses: any[] = [];
@@ -290,6 +308,8 @@ export async function GET(req: Request) {
             views: v.views,
             subscribers: v.subscribers,
             multiplier: v.multiplier,
+            viewsPerDay: v.viewsPerDay || null,
+            likeRatio: v.likeRatio || null,
             publishedAt: v.publishedAt,
             reason,
           };
@@ -299,15 +319,70 @@ export async function GET(req: Request) {
     // Limit results for free users
     const limitedResults = isPro ? results : results.slice(0, FREE_RESULT_LIMIT);
 
+    // Add outlier tier metadata and additional fields to each result
+    const resultsWithMetadata = limitedResults.map((video: any) => {
+      // Determine if video is fresh (within 30 days)
+      const isFresh = video.publishedAt ? (() => {
+        const publishedDate = new Date(video.publishedAt);
+        const daysSincePublished = (Date.now() - publishedDate.getTime()) / (1000 * 60 * 60 * 24);
+        return daysSincePublished <= 30;
+      })() : false;
+
+      // Classify outlier tier
+      const outlierTier = classifyOutlier({
+        views: video.views,
+        subscribers: video.subscribers,
+        viewsPerDay: video.viewsPerDay,
+        likeRatio: video.likeRatio,
+        nicheAverageMultiplier,
+        nicheAverageLikeRatio,
+        breakoutCount,
+        isFresh,
+      });
+
+      return {
+        ...video,
+        outlierTier,
+        nicheAverageMultiplier,
+      };
+    });
+
+    // Add metadata to near-misses if present
+    const nearMissesWithMetadata = nearMisses.length > 0
+      ? nearMisses.map((video: any) => {
+          const isFresh = video.publishedAt ? (() => {
+            const publishedDate = new Date(video.publishedAt);
+            const daysSincePublished = (Date.now() - publishedDate.getTime()) / (1000 * 60 * 60 * 24);
+            return daysSincePublished <= 30;
+          })() : false;
+
+          const outlierTier = classifyOutlier({
+            views: video.views,
+            subscribers: video.subscribers,
+            viewsPerDay: video.viewsPerDay || null,
+            likeRatio: video.likeRatio || null,
+            nicheAverageMultiplier,
+            nicheAverageLikeRatio,
+            breakoutCount,
+            isFresh,
+          });
+
+          return {
+            ...video,
+            outlierTier,
+            nicheAverageMultiplier,
+          };
+        })
+      : [];
+
     // Return results with nearMisses if present
-    if (nearMisses.length > 0) {
+    if (nearMissesWithMetadata.length > 0) {
       return NextResponse.json({
-        results: limitedResults,
-        nearMisses,
+        results: resultsWithMetadata,
+        nearMisses: nearMissesWithMetadata,
       });
     }
-
-    return NextResponse.json(limitedResults);
+    return NextResponse.json(resultsWithMetadata);
   } catch (err: any) {
     return NextResponse.json(
       {
