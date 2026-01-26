@@ -2,6 +2,7 @@
 
 import { FormEvent, useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { getUserPlan, isPro, type UserPlan } from "@/lib/auth";
 
@@ -17,6 +18,8 @@ type OutlierResult = {
   publishedAt?: string | null;
   // Tier classification metadata (from backend)
   outlierTier?: string[] | null;
+  // Confidence tier: "BREAKOUT" (3×+) or "RISING" (2.0-2.9×)
+  confidenceTier?: "BREAKOUT" | "RISING";
   // Velocity and engagement metrics
   viewsPerDay?: number | null;
   likeRatio?: number | null;
@@ -128,6 +131,53 @@ function getPrimaryTier(tiers: string[] | null | undefined): string | null {
   if (tiers.includes("high_signal")) return "high_signal";
   if (tiers.includes("niche_outlier")) return "niche_outlier";
   return tiers[0]; // Fallback to first tier
+}
+
+function getNicheStatusColor(status: NicheStatus): string {
+  switch (status) {
+    case "SATURATED":
+      return "bg-red-500/20 text-red-300 border-red-500/30";
+    case "QUIET":
+      return "bg-blue-500/20 text-blue-300 border-blue-500/30";
+    case "EMERGING":
+      return "bg-green-500/20 text-green-300 border-green-500/30";
+    case "EVENT_DRIVEN":
+      return "bg-purple-500/20 text-purple-300 border-purple-500/30";
+    case "DECLINING":
+      return "bg-orange-500/20 text-orange-300 border-orange-500/30";
+    default:
+      return "bg-neutral-700/50 text-neutral-300 border-neutral-600/30";
+  }
+}
+
+function getNicheStatusIcon(status: NicheStatus): string {
+  switch (status) {
+    case "SATURATED":
+      return "🔥";
+    case "QUIET":
+      return "🌊";
+    case "EMERGING":
+      return "📈";
+    case "EVENT_DRIVEN":
+      return "⚡";
+    case "DECLINING":
+      return "📉";
+    default:
+      return "📊";
+  }
+}
+
+function getDifficultyColor(level: DifficultyLevel): string {
+  switch (level) {
+    case "BEGINNER":
+      return "bg-green-500/20 text-green-300 border-green-500/30";
+    case "INTERMEDIATE":
+      return "bg-yellow-500/20 text-yellow-300 border-yellow-500/30";
+    case "EXPERT":
+      return "bg-red-500/20 text-red-300 border-red-500/30";
+    default:
+      return "bg-neutral-700/50 text-neutral-300 border-neutral-600/30";
+  }
 }
 
 function buildExplanation(video: OutlierResult): string {
@@ -293,9 +343,25 @@ type ViewFloor = ">=1k" | ">=5k" | ">=10k" | "nomin";
 type SortOption = "multiplier" | "views";
 type SearchMode = "momentum" | "proven";
 
+// Niche analysis types (matching backend)
+type NicheStatus = "SATURATED" | "QUIET" | "EMERGING" | "EVENT_DRIVEN" | "DECLINING";
+type DifficultyLevel = "BEGINNER" | "INTERMEDIATE" | "EXPERT";
+
+interface NicheAnalysis {
+  nicheStatus: NicheStatus;
+  scannedVideos: number;
+  averageChannelSize: number;
+  dominantChannelThreshold: number;
+  explanation: string;
+  difficultyLevel: DifficultyLevel;
+  suggestedSearches: string[];
+}
+
 const SAVED_SEARCHES_KEY = "youtube-outlier-saved-searches";
 
 export function HomeClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OutlierResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -305,6 +371,10 @@ export function HomeClient() {
   const [showNearMisses, setShowNearMisses] = useState(false);
   const [dismissedSoftLanding, setDismissedSoftLanding] = useState(false);
   const [searchSavedConfirmation, setSearchSavedConfirmation] = useState(false);
+  const [nicheAnalysis, setNicheAnalysis] = useState<NicheAnalysis | null>(null);
+  const [risingSignals, setRisingSignals] = useState<OutlierResult[]>([]);
+  const [showRisingSignals, setShowRisingSignals] = useState(false);
+  const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
 
   // Default to higher cap for Pro users to unlock benefits immediately
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
@@ -317,6 +387,19 @@ export function HomeClient() {
   const planValue = isLoaded ? (user?.publicMetadata?.plan as string | undefined) : undefined;
   const plan: UserPlan = getUserPlan(planValue);
   const userIsPro = isLoaded && isPro(plan);
+
+  // Check for checkout success on mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && searchParams?.get("session_id")) {
+      setShowCheckoutSuccess(true);
+      // Clear the session_id from URL after showing success
+      const url = new URL(window.location.href);
+      url.searchParams.delete("session_id");
+      router.replace(url.pathname + url.search, { scroll: false });
+      // Hide success message after 10 seconds
+      setTimeout(() => setShowCheckoutSuccess(false), 10000);
+    }
+  }, [searchParams, router]);
 
   // Load saved searches from localStorage on mount
   useEffect(() => {
@@ -430,6 +513,9 @@ export function HomeClient() {
     setLoading(true);
     setError(null);
     setNearMisses([]); // Clear nearMisses on new search
+    setNicheAnalysis(null); // Clear niche analysis on new search
+    setRisingSignals([]); // Clear rising signals on new search
+    setShowRisingSignals(false); // Reset rising signals toggle
     setShowNearMisses(false); // Reset opt-in state
     setDismissedSoftLanding(false); // Reset dismissal state
     setSearchSavedConfirmation(false); // Reset confirmation
@@ -451,7 +537,8 @@ export function HomeClient() {
       } else {
         setResults(data.results || []);
         setNearMisses(data.nearMisses || []);
-        // nearMisses stored but not rendered automatically (Layer 1: Soft Landing UI pending)
+        setNicheAnalysis(data.nicheAnalysis || null);
+        setRisingSignals(data.risingSignals || []);
       }
     } catch (err: any) {
       setError(err.message || "Unable to search for outliers. Please try again.");
@@ -519,6 +606,50 @@ export function HomeClient() {
       </div>
 
       <div className="relative z-10 max-w-6xl mx-auto px-5 py-10 sm:py-16">
+        {/* Pro Status Badge - Persistent indicator */}
+        {userIsPro && (
+          <div className="fixed top-4 right-4 z-50">
+            <div className="px-3 py-1.5 rounded-full text-xs font-semibold text-white backdrop-blur-md border border-purple-500/30 shadow-lg" style={{ background: "linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(236, 72, 153, 0.2) 100%)" }}>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span>
+                Pro Active
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Post-checkout success state */}
+        {showCheckoutSuccess && userIsPro && (
+          <div className="max-w-2xl mx-auto mb-6 p-4 bg-green-500/10 border border-green-500/30 rounded-lg animate-in fade-in slide-in-from-top-4">
+            <div className="flex items-start gap-3">
+              <span className="text-green-400 text-xl">✓</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-green-300 mb-1">
+                  Pro unlocked successfully
+                </p>
+                <p className="text-xs text-green-200/80 leading-relaxed mb-2">
+                  You now have access to:
+                </p>
+                <ul className="text-xs text-green-200/80 space-y-1 list-disc list-inside">
+                  <li>Unlimited results (no 5-video cap)</li>
+                  <li>Rising Signals (early momentum detection)</li>
+                  <li>Saved searches & email alerts</li>
+                  <li>Market Heat Check reports</li>
+                  <li>Advanced subscriber cap filters</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCheckoutSuccess(false)}
+                className="text-green-400/60 hover:text-green-400 transition-colors"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Hero Section */}
         <div className="text-center mb-16 sm:mb-20 pt-12 sm:pt-16">
           {/* Badge */}
@@ -868,12 +999,15 @@ export function HomeClient() {
         {!loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
           <div className="max-w-3xl mx-auto mb-6 p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg">
             <div className="space-y-4">
-              <div className="text-center">
-                <p className="text-sm font-semibold text-neutral-200 mb-1">
-                  No fresh breakouts in the last 30 days
+              <div className="text-center space-y-2">
+                <p className="text-sm font-semibold text-neutral-200">
+                  No fresh breakouts detected
                 </p>
-                <p className="text-xs text-neutral-400">
-                  But we found {nearMisses.length} {nearMisses.length === 1 ? "video" : "videos"} that nearly qualify
+                <p className="text-xs text-neutral-400 leading-relaxed max-w-lg mx-auto">
+                  We scanned recent videos from channels under 50k subscribers. None exceeded the 3× multiplier threshold within the last 30 days.
+                </p>
+                <p className="text-xs text-neutral-500">
+                  Found {nearMisses.length} {nearMisses.length === 1 ? "video" : "videos"} with early momentum (2.5–2.9× multiplier)
                 </p>
               </div>
 
@@ -986,16 +1120,157 @@ export function HomeClient() {
 
         {!loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
           <div className="max-w-2xl mx-auto space-y-4">
+            {/* Market Heat Check Card - Shows niche intelligence when no breakouts found */}
+            {nicheAnalysis && (
+              <div className="p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg backdrop-blur-sm">
+                <div className="space-y-4">
+                  {/* Header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">📊</span>
+                      <h3 className="text-base font-semibold text-white">Market Heat Check</h3>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getNicheStatusColor(nicheAnalysis.nicheStatus)}`}>
+                      {getNicheStatusIcon(nicheAnalysis.nicheStatus)} {nicheAnalysis.nicheStatus}
+                    </span>
+                  </div>
+
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
+                      <div className="text-xs text-neutral-400 mb-1">Scanned</div>
+                      <div className="text-sm font-semibold text-white">{nicheAnalysis.scannedVideos} videos</div>
+                    </div>
+                    <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
+                      <div className="text-xs text-neutral-400 mb-1">Avg Channel</div>
+                      <div className="text-sm font-semibold text-white">{formatNumber(nicheAnalysis.averageChannelSize)}</div>
+                    </div>
+                    <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
+                      <div className="text-xs text-neutral-400 mb-1">Difficulty</div>
+                      <div className={`text-xs font-semibold px-2 py-0.5 rounded-full border inline-block ${getDifficultyColor(nicheAnalysis.difficultyLevel)}`}>
+                        {nicheAnalysis.difficultyLevel}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Explanation - Framed as market intelligence, not absence */}
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                        Market Insight
+                      </h4>
+                      <p className="text-sm text-neutral-300 leading-relaxed">
+                        {nicheAnalysis.explanation}
+                      </p>
+                    </div>
+
+                    {/* What this means */}
+                    <div className="space-y-2 pt-3 border-t border-neutral-800">
+                      <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                        What this means
+                      </h4>
+                      <p className="text-xs text-neutral-400 leading-relaxed">
+                        We scanned {nicheAnalysis.scannedVideos} recent videos from channels under 50k subscribers. Our criteria: published within 30 days, multiplier of 3× or higher. None met these thresholds.
+                      </p>
+                    </div>
+
+                    {/* Why this is useful */}
+                    <div className="space-y-2 pt-3 border-t border-neutral-800">
+                      <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                        Why this is useful
+                      </h4>
+                      <p className="text-xs text-neutral-400 leading-relaxed">
+                        This tells us the niche is currently stable or saturated. No videos are significantly outperforming channel size expectations right now. That scarcity is valuable intelligence.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Suggested Searches */}
+                  {nicheAnalysis.suggestedSearches.length > 0 && (
+                    <div>
+                      <p className="text-xs text-neutral-400 mb-2">Try these searches:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {nicheAnalysis.suggestedSearches.map((suggestion, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setQuery(suggestion);
+                              const form = document.querySelector("form");
+                              if (form) {
+                                form.requestSubmit();
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-md text-xs text-neutral-300 hover:bg-neutral-750 hover:border-neutral-600 transition-colors"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rising Signals info in Market Heat Check (if available) */}
+                  {risingSignals.length > 0 && (
+                    <div className="pt-3 border-t border-neutral-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-neutral-300">
+                          {risingSignals.length} Rising Signal{risingSignals.length === 1 ? "" : "s"} Available
+                        </span>
+                        {userIsPro ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowRisingSignals(!showRisingSignals)}
+                            className="text-xs text-purple-400 hover:text-purple-300 transition-colors font-semibold"
+                          >
+                            {showRisingSignals ? "Hide" : "Show"} (Pro)
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleCheckout}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+                            style={{
+                              background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                              boxShadow: "0 0 20px rgba(168, 85, 247, 0.3)"
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.5)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.boxShadow = "0 0 20px rgba(168, 85, 247, 0.3)";
+                            }}
+                          >
+                            Unlock Pro →
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-neutral-400 leading-relaxed">
+                        Videos with 2.0–2.9× multiplier showing early momentum. Pro unlocks rising signals, unlimited results, and saved searches.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Primary CTA: Save Search & Get Alerted */}
             <div className="p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg">
               <div className="text-center space-y-4">
                 <div>
                   <p className="text-base font-semibold text-neutral-200 mb-2">
-                    No fresh breakouts in this niche right now — want to know when that changes?
+                    {nicheAnalysis 
+                      ? "Monitor this niche for momentum shifts"
+                      : "No fresh breakouts detected in this niche"}
                   </p>
+                  {!nicheAnalysis && (
+                    <p className="text-xs text-neutral-400 leading-relaxed mb-3">
+                      We scanned recent videos from small channels. None are outperforming expectations yet.
+                    </p>
+                  )}
                   {searchSavedConfirmation ? (
                     <p className="text-sm text-green-400 font-medium">
-                      ✓ We&apos;ll notify you when momentum appears
+                      ✓ Search saved. We&apos;ll monitor this niche and alert you when breakouts appear.
                     </p>
                   ) : (
                     <button
@@ -1013,35 +1288,71 @@ export function HomeClient() {
                         e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
                       }}
                     >
-                      Save this search & get alerted
+                      Save search & monitor for changes
                     </button>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Secondary empty state message */}
-            <div className="p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
-              <div className="text-center space-y-3">
-                <div>
-                  <p className="text-sm text-neutral-300 font-medium">
-                    No fresh breakouts in this niche right now.
+            {/* Secondary empty state message - Only show if no niche analysis */}
+            {!nicheAnalysis && (
+              <div className="p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg space-y-4">
+                {/* What this means */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                    What this means
+                  </h4>
+                  <p className="text-sm text-neutral-300 leading-relaxed">
+                    We scanned recent videos from channels under 50k subscribers. None exceeded the 3× multiplier threshold within the last 30 days.
                   </p>
-                  <p className="text-xs text-neutral-400 leading-relaxed mt-2">
-                    That usually means low competition — which is an opportunity.
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    Our criteria: published within 30 days, channel size under 50k, multiplier of 3× or higher.
                   </p>
                 </div>
-                {searchMode === "momentum" && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchMode("proven")}
-                    className="text-xs text-purple-400 hover:text-purple-300 underline transition-colors"
-                  >
-                    Switch to Study Vault to explore proven formats
-                  </button>
-                )}
+
+                {/* Why this is useful */}
+                <div className="space-y-2 pt-3 border-t border-neutral-800">
+                  <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                    Why this is useful
+                  </h4>
+                  <p className="text-sm text-neutral-300 leading-relaxed">
+                    This tells us the niche is currently stable or saturated. No videos are significantly outperforming channel size expectations right now.
+                  </p>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    That scarcity is valuable intelligence — it indicates either low competition (opportunity) or high saturation (caution).
+                  </p>
+                </div>
+
+                {/* What to do next */}
+                <div className="space-y-2 pt-3 border-t border-neutral-800">
+                  <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                    What to do next
+                  </h4>
+                  <div className="flex flex-col sm:flex-row gap-2 justify-center items-center">
+                    {searchMode === "momentum" && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchMode("proven")}
+                        className="text-xs text-purple-400 hover:text-purple-300 underline transition-colors"
+                      >
+                        Explore proven formats in Study Vault
+                      </button>
+                    )}
+                    {searchMode === "momentum" && (
+                      <span className="text-xs text-neutral-600 hidden sm:inline">•</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSaveSearchForAlerts}
+                      className="text-xs text-purple-400 hover:text-purple-300 underline transition-colors"
+                    >
+                      Save this search to monitor for changes
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -1072,9 +1383,19 @@ export function HomeClient() {
                       <option value="nolimit">Unlimited</option>
                     </select>
                     {!userIsPro && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[0.6rem] font-semibold px-1 rounded" title="Pro feature: Filter by subscriber cap to focus on channels your size">
-                        Pro
-                      </span>
+                      <div className="absolute -top-1 -right-1">
+                        <span className="bg-red-500 text-white text-[0.6rem] font-semibold px-1 rounded" title="Pro feature: Filter by subscriber cap to focus on channels your size">
+                          Pro
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleCheckout}
+                          className="ml-1 text-[0.6rem] text-purple-400 hover:text-purple-300 underline"
+                          title="Upgrade to Pro to unlock subscriber cap filters"
+                        >
+                          Unlock
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1382,37 +1703,64 @@ export function HomeClient() {
                   }
                 }}
               >
-                <p>
-                  Showing {userIsPro ? filteredResults.length : 5} of {filteredResults.length} {searchMode === "momentum" ? "fresh breakouts" : "proven formats"}{!userIsPro && ". Upgrade to Pro to see all results"}
-                </p>
-                <button
-                  type="button"
-                  id="unlock-full-results-button-main"
-                  data-testid="unlock-full-results-button"
-                  onClick={() => {
-                    handleCheckout();
-                  }}
-                  disabled={loading}
-                  style={{ 
-                    pointerEvents: "auto", 
-                    zIndex: 10, 
-                    position: "relative", 
-                    cursor: "pointer",
-                    background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
-                    boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
-                  }}
-                  className="shrink-0 inline-flex items-center justify-center rounded-xl text-xs font-semibold px-3 py-1.5 text-white transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                  onMouseEnter={(e) => {
-                    if (!loading) {
-                      e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
-                  }}
-                >
-                  {loading ? "Loading..." : "Upgrade to Pro"}
-                </button>
+                <div className="space-y-2">
+                  <p className="text-sm text-neutral-300 font-medium">
+                    {userIsPro ? (
+                      <span>Showing all {filteredResults.length} {searchMode === "momentum" ? "fresh breakouts" : "proven formats"}</span>
+                    ) : (
+                      <>
+                        <span>Showing 5 of {filteredResults.length} {searchMode === "momentum" ? "fresh breakouts" : "proven formats"}</span>
+                        <span className="text-neutral-500"> • </span>
+                        <span className="text-neutral-400">Unlock {filteredResults.length - 5} more with Pro</span>
+                      </>
+                    )}
+                  </p>
+                  {!userIsPro && (
+                    <button
+                      type="button"
+                      id="unlock-full-results-button-main"
+                      data-testid="unlock-full-results-button"
+                      onClick={() => {
+                        handleCheckout();
+                      }}
+                      disabled={loading}
+                      className="inline-flex items-center justify-center px-6 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                        boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)",
+                        pointerEvents: "auto",
+                        zIndex: 10,
+                        position: "relative",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!loading) {
+                          e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
+                      }}
+                    >
+                      {loading ? "Loading..." : "Upgrade to Pro"}
+                    </button>
+                  )}
+                  {!userIsPro && (
+                    <div className="flex items-center justify-center gap-4 text-xs text-neutral-500 pt-1">
+                      <span className="flex items-center gap-1">
+                        <span className="text-green-400">✓</span>
+                        <span>Unlimited results</span>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="text-green-400">✓</span>
+                        <span>Saved searches</span>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="text-green-400">✓</span>
+                        <span>Weekly digests</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1427,6 +1775,164 @@ export function HomeClient() {
             )}
 
           </>
+        )}
+
+        {/* Rising Signals Section - Opt-in, Pro-only */}
+        {/* Show when rising signals exist, regardless of main results */}
+        {risingSignals.length > 0 && (
+          <div className="max-w-3xl mx-auto mt-8">
+            {/* Toggle/CTA Header */}
+            <div className="mb-4 p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-neutral-200 mb-1">
+                    Rising Signals (Early Momentum)
+                  </h3>
+                  <p className="text-xs text-neutral-400">
+                    {risingSignals.length} video{risingSignals.length === 1 ? "" : "s"} with 2.0–2.9× multiplier showing early momentum
+                  </p>
+                </div>
+                {userIsPro ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowRisingSignals(!showRisingSignals)}
+                    className="px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+                    style={{
+                      background: showRisingSignals 
+                        ? "rgba(255, 255, 255, 0.1)" 
+                        : "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                      boxShadow: showRisingSignals 
+                        ? "none" 
+                        : "0 0 20px rgba(168, 85, 247, 0.3)"
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!showRisingSignals) {
+                        e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.5)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!showRisingSignals) {
+                        e.currentTarget.style.boxShadow = "0 0 20px rgba(168, 85, 247, 0.3)";
+                      }
+                    }}
+                  >
+                    {showRisingSignals ? "Hide" : "Show"} (Pro)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleCheckout}
+                    className="px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+                    style={{
+                      background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                      boxShadow: "0 0 20px rgba(168, 85, 247, 0.3)"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.5)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.boxShadow = "0 0 20px rgba(168, 85, 247, 0.3)";
+                    }}
+                  >
+                    Unlock Pro →
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Rising Signals Cards - Only shown when opted in and user is Pro */}
+            {userIsPro && showRisingSignals && (
+              <div className="space-y-4">
+                {/* Disclaimer */}
+                <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                  <p className="text-xs text-yellow-300 font-semibold mb-1">
+                    ⚠️ Important: These are NOT breakouts yet
+                  </p>
+                  <p className="text-xs text-yellow-200/80 leading-relaxed">
+                    These videos show early momentum (2.0–2.9× multiplier) but haven&apos;t reached full breakout status (3×+). Use them to spot trends early, but they carry higher risk.
+                  </p>
+                </div>
+
+                {/* Rising Signals Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {risingSignals.map((video) => {
+                    const daysAgo = getDaysAgo(video.publishedAt);
+                    return (
+                      <a
+                        key={video.id}
+                        href={`https://www.youtube.com/watch?v=${video.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block bg-neutral-900/70 border border-neutral-700 rounded-lg overflow-hidden hover:border-neutral-600 hover:shadow-lg hover:shadow-black/20 transition-all cursor-pointer opacity-90"
+                      >
+                        <div className="relative w-full aspect-video bg-neutral-800">
+                          <img
+                            src={video.thumbnail}
+                            alt={video.title}
+                            className="w-full h-full object-cover"
+                          />
+                          {/* Rising Signal Badge */}
+                          <div className="absolute top-2 right-2">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                              RISING
+                            </span>
+                          </div>
+                        </div>
+                        <div className="p-3 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="text-sm font-medium text-neutral-200 line-clamp-2 flex-1">
+                              {video.title}
+                            </h3>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold border bg-yellow-500/20 text-yellow-300 border-yellow-500/30 shrink-0">
+                              {video.multiplier.toFixed(1)}×
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs text-neutral-400 truncate">
+                              {video.channelTitle}
+                            </p>
+                            {daysAgo !== null && (
+                              <span className="text-xs text-neutral-500 whitespace-nowrap shrink-0">
+                                {daysAgo}d ago
+                              </span>
+                            )}
+                          </div>
+                          {/* Velocity/Engagement if available */}
+                          {((video.viewsPerDay !== null && video.viewsPerDay !== undefined) || 
+                            (video.likeRatio !== null && video.likeRatio !== undefined)) && (
+                            <div className="flex items-center gap-3 text-xs text-neutral-500">
+                              {video.viewsPerDay !== null && video.viewsPerDay !== undefined && (
+                                <span className="flex items-center gap-1">
+                                  <span>📈</span>
+                                  <span>
+                                    {video.viewsPerDay >= 1000
+                                      ? `${(video.viewsPerDay / 1000).toFixed(1)}k`
+                                      : Math.round(video.viewsPerDay).toLocaleString()}{" "}
+                                    views/day
+                                  </span>
+                                </span>
+                              )}
+                              {video.likeRatio !== null && video.likeRatio !== undefined && (
+                                <span className="flex items-center gap-1">
+                                  <span>⚡</span>
+                                  <span>{(video.likeRatio * 100).toFixed(1)}% engagement</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-3 text-xs text-neutral-500">
+                            <span>{formatNumber(video.views)} views</span>
+                            <span>•</span>
+                            <span>{formatNumber(video.subscribers)} subs</span>
+                          </div>
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         <div className="mt-10 max-w-2xl mx-auto bg-neutral-900 border border-neutral-800 rounded-xl px-5 py-5">

@@ -210,6 +210,54 @@ export function PricingClient() {
           </div>
         </div>
 
+        {/* What Pro Unlocks Section */}
+        <div 
+          className="mt-12 mb-12 rounded-3xl p-8"
+          style={{
+            background: "rgba(255, 255, 255, 0.03)",
+            backdropFilter: "blur(20px)",
+            border: "1px solid rgba(168, 85, 247, 0.2)"
+          }}
+        >
+          <h2 className="text-2xl font-bold mb-6 text-white text-center">
+            What Pro Unlocks
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Rising Signals */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">📈</span>
+                <h3 className="text-lg font-semibold text-white">Rising Signals</h3>
+              </div>
+              <p className="text-sm text-white/70 leading-relaxed">
+                See videos with 2.0–2.9× multiplier showing early momentum before they become full breakouts. Spot trends early with opt-in access to rising signals.
+              </p>
+            </div>
+
+            {/* Alerts & Monitoring */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🔔</span>
+                <h3 className="text-lg font-semibold text-white">Alerts & Monitoring</h3>
+              </div>
+              <p className="text-sm text-white/70 leading-relaxed">
+                Save searches and get email alerts when new breakouts appear in your watched niches. Never miss an opportunity window.
+              </p>
+            </div>
+
+            {/* Deeper Analysis */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🔍</span>
+                <h3 className="text-lg font-semibold text-white">Deeper Analysis</h3>
+              </div>
+              <p className="text-sm text-white/70 leading-relaxed">
+                Access Market Heat Check reports, niche intelligence, and unlimited results. Get full context on why niches are quiet or saturated.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Comparison Table */}
         <div 
           className="mt-8 mb-12 rounded-3xl overflow-hidden"

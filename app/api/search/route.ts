@@ -256,6 +256,33 @@ export async function GET(req: Request) {
     // Count breakouts (videos with multiplier >= 3)
     const breakoutCount = results.filter((v: any) => v.multiplier >= 3).length;
 
+    // Identify Rising Signals: videos with 2.0-2.9× multiplier (early momentum, not full breakouts)
+    // These are separate from main results and near-misses
+    const risingSignals = allVideos
+      .filter((v: any) => {
+        // Must meet view floor
+        if (v.views < 1_000) return false;
+        
+        // Must be in the 2.0-2.9× range (not a full breakout)
+        if (v.multiplier < 2.0 || v.multiplier >= 3.0) return false;
+
+        // Must beat channel average
+        if (v.multiplier <= 1) return false;
+
+        // For momentum mode, respect date threshold (60 days)
+        if (isMomentumMode && momentumDateThreshold && v.publishedAt) {
+          const publishedDate = new Date(v.publishedAt);
+          if (publishedDate < momentumDateThreshold) {
+            return false;
+          }
+        }
+
+        // Exclude videos that are already in results (strict outliers)
+        return !v.outlier;
+      })
+      .sort((a: any, b: any) => b.multiplier - a.multiplier) // Sort by multiplier descending
+      .slice(0, 10); // Limit to top 10 rising signals
+
     // Compute niche analysis when no breakouts are found
     // This provides intelligence about why no results appeared, turning empty states into insights
     let nicheAnalysis: NicheAnalysis | null = null;
@@ -327,28 +354,28 @@ export async function GET(req: Request) {
 
       if (averageChannelSize > 50_000 && maxMultiplier < 2.5) {
         nicheStatus = "SATURATED";
-        explanation = `This niche is dominated by established channels (avg ${averageChannelSize.toLocaleString()} subscribers). No videos exceeded 2.5× multiplier, indicating high competition.`;
+        explanation = `We scanned ${allVideos.length} recent videos from channels averaging ${averageChannelSize.toLocaleString()} subscribers. None exceeded 2.5× multiplier, indicating high competition and established players. This niche is currently dominated by larger channels.`;
         difficultyLevel = "EXPERT";
       } else if (averageChannelSize < 20_000 && uploadVelocity < 0.3) {
         nicheStatus = "QUIET";
-        explanation = `Small channels (avg ${averageChannelSize.toLocaleString()} subscribers) with low recent activity. This could indicate an untapped opportunity or seasonal lull.`;
+        explanation = `We scanned ${allVideos.length} videos from small channels (avg ${averageChannelSize.toLocaleString()} subscribers) with low recent activity. This pattern suggests either an untapped opportunity or a seasonal lull. Low competition may present an entry window.`;
         difficultyLevel = averageChannelSize < 10_000 ? "BEGINNER" : "INTERMEDIATE";
       } else if (averageChannelSize < 10_000 && multiplierVariance > 1.0) {
         nicheStatus = "EMERGING";
-        explanation = `Small channels with high performance variance. Some videos are gaining traction, suggesting early-stage opportunity.`;
+        explanation = `We scanned ${allVideos.length} videos from small channels (avg ${averageChannelSize.toLocaleString()} subscribers) with high performance variance. Some videos are gaining traction, suggesting early-stage opportunity. This niche shows signs of emerging momentum.`;
         difficultyLevel = "BEGINNER";
       } else if (isEventDriven && isBursty) {
         nicheStatus = "EVENT_DRIVEN";
-        explanation = `Event-driven content with bursty upload patterns. Timing and speed matter more than channel size here.`;
+        explanation = `We scanned ${allVideos.length} videos with bursty upload patterns. This niche is event-driven, meaning timing and speed matter more than channel size. Breakouts here are tied to external events or releases.`;
         difficultyLevel = "INTERMEDIATE";
       } else if (isDeclining) {
         nicheStatus = "DECLINING";
-        explanation = `Low volume niche with no recent breakouts. May be past its peak or require a fresh angle.`;
+        explanation = `We scanned ${allVideos.length} videos with low volume and no recent breakouts. This niche may be past its peak or require a fresh angle. Historical performance suggests declining momentum.`;
         difficultyLevel = "EXPERT";
       } else {
         // Default to QUIET if no specific pattern matches
         nicheStatus = "QUIET";
-        explanation = `No clear breakout patterns detected. This could indicate low competition or a niche in transition.`;
+        explanation = `We scanned ${allVideos.length} recent videos. No clear breakout patterns detected. This could indicate low competition (opportunity) or a niche in transition (caution).`;
         difficultyLevel = averageChannelSize < 20_000 ? "BEGINNER" : "INTERMEDIATE";
       }
 
@@ -524,7 +551,34 @@ export async function GET(req: Request) {
         })
       : [];
 
-    // Return results with nearMisses and/or nicheAnalysis if present
+    // Add metadata to rising signals with confidenceTier = "RISING"
+    const risingSignalsWithMetadata = risingSignals.map((video: any) => {
+      const isFresh = video.publishedAt ? (() => {
+        const publishedDate = new Date(video.publishedAt);
+        const daysSincePublished = (Date.now() - publishedDate.getTime()) / (1000 * 60 * 60 * 24);
+        return daysSincePublished <= 30;
+      })() : false;
+
+      const outlierTier = classifyOutlier({
+        views: video.views,
+        subscribers: video.subscribers,
+        viewsPerDay: video.viewsPerDay || null,
+        likeRatio: video.likeRatio || null,
+        nicheAverageMultiplier,
+        nicheAverageLikeRatio,
+        breakoutCount,
+        isFresh,
+      });
+
+      return {
+        ...video,
+        confidenceTier: "RISING" as const,
+        outlierTier,
+        nicheAverageMultiplier,
+      };
+    });
+
+    // Return results with nearMisses, risingSignals, and/or nicheAnalysis if present
     const response: any = {
       results: resultsWithMetadata,
     };
@@ -532,6 +586,11 @@ export async function GET(req: Request) {
     // Include near-misses if present
     if (nearMissesWithMetadata.length > 0) {
       response.nearMisses = nearMissesWithMetadata;
+    }
+
+    // Include rising signals if present (separate from main results)
+    if (risingSignalsWithMetadata.length > 0) {
+      response.risingSignals = risingSignalsWithMetadata;
     }
 
     // Include niche analysis when no breakouts found (provides intelligence about why)
