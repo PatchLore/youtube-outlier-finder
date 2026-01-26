@@ -7,6 +7,20 @@ export const dynamic = "force-dynamic";
 
 const FREE_RESULT_LIMIT = 5;
 
+// Niche analysis types for zero-result intelligence
+export type NicheStatus = "SATURATED" | "QUIET" | "EMERGING" | "EVENT_DRIVEN" | "DECLINING";
+export type DifficultyLevel = "BEGINNER" | "INTERMEDIATE" | "EXPERT";
+
+export interface NicheAnalysis {
+  nicheStatus: NicheStatus;
+  scannedVideos: number;
+  averageChannelSize: number;
+  dominantChannelThreshold: number;
+  explanation: string;
+  difficultyLevel: DifficultyLevel;
+  suggestedSearches: string[];
+}
+
 export async function GET(req: Request) {
   try {
     // Get API key
@@ -242,6 +256,141 @@ export async function GET(req: Request) {
     // Count breakouts (videos with multiplier >= 3)
     const breakoutCount = results.filter((v: any) => v.multiplier >= 3).length;
 
+    // Compute niche analysis when no breakouts are found
+    // This provides intelligence about why no results appeared, turning empty states into insights
+    let nicheAnalysis: NicheAnalysis | null = null;
+    if (results.length === 0 && allVideos.length > 0) {
+      // Calculate average channel size from all scanned videos
+      const validSubscribers = allVideos
+        .map((v: any) => v.subscribers)
+        .filter((subs: number) => subs > 0);
+      const averageChannelSize = validSubscribers.length > 0
+        ? Math.round(validSubscribers.reduce((sum: number, s: number) => sum + s, 0) / validSubscribers.length)
+        : 0;
+
+      // Calculate dominant channel threshold (median channel size)
+      const sortedSubs = [...validSubscribers].sort((a, b) => a - b);
+      const dominantChannelThreshold = sortedSubs.length > 0
+        ? sortedSubs[Math.floor(sortedSubs.length / 2)]
+        : 0;
+
+      // Calculate max multiplier to check saturation
+      const maxMultiplier = allVideos.length > 0
+        ? Math.max(...allVideos.map((v: any) => v.multiplier))
+        : 0;
+
+      // Calculate multiplier variance for emerging detection
+      const multipliers = allVideos.map((v: any) => v.multiplier);
+      const avgMultiplier = multipliers.reduce((sum: number, m: number) => sum + m, 0) / multipliers.length;
+      const variance = multipliers.reduce((sum: number, m: number) => sum + Math.pow(m - avgMultiplier, 2), 0) / multipliers.length;
+      const multiplierVariance = Math.sqrt(variance);
+
+      // Check upload velocity (videos published in last 30 days)
+      const now = new Date();
+      const days30Ago = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const recentVideos = allVideos.filter((v: any) => {
+        if (!v.publishedAt) return false;
+        const publishedDate = new Date(v.publishedAt);
+        return publishedDate >= days30Ago;
+      });
+      const uploadVelocity = recentVideos.length / allVideos.length;
+
+      // Check for event-driven keywords (gaming, tech)
+      const lowerQuery = trimmedQuery.toLowerCase();
+      const isEventDriven = /(gaming|game|tech|technology|ai|artificial intelligence|release|update|launch)/.test(lowerQuery);
+
+      // Check for bursty upload dates (multiple videos on same day)
+      const publishDates = allVideos
+        .map((v: any) => v.publishedAt ? new Date(v.publishedAt).toDateString() : null)
+        .filter((d: string | null): d is string => d !== null);
+      const dateCounts = publishDates.reduce((acc: Record<string, number>, date: string) => {
+        acc[date] = (acc[date] || 0) + 1;
+        return acc;
+      }, {});
+      const dateCountValues = Object.values(dateCounts) as number[];
+      const maxVideosPerDay = dateCountValues.length > 0 ? Math.max(...dateCountValues) : 0;
+      const isBursty = maxVideosPerDay >= 3;
+
+      // Check for declining (low volume + no breakout in 90+ days)
+      const days90Ago = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      const recentBreakouts = allVideos.filter((v: any) => {
+        if (!v.publishedAt) return false;
+        const publishedDate = new Date(v.publishedAt);
+        return publishedDate >= days90Ago && v.multiplier >= 2.5;
+      });
+      const isDeclining = allVideos.length < 10 && recentBreakouts.length === 0;
+
+      // Classify niche status based on computed metrics
+      let nicheStatus: NicheStatus;
+      let explanation: string;
+      let difficultyLevel: DifficultyLevel;
+
+      if (averageChannelSize > 50_000 && maxMultiplier < 2.5) {
+        nicheStatus = "SATURATED";
+        explanation = `This niche is dominated by established channels (avg ${averageChannelSize.toLocaleString()} subscribers). No videos exceeded 2.5× multiplier, indicating high competition.`;
+        difficultyLevel = "EXPERT";
+      } else if (averageChannelSize < 20_000 && uploadVelocity < 0.3) {
+        nicheStatus = "QUIET";
+        explanation = `Small channels (avg ${averageChannelSize.toLocaleString()} subscribers) with low recent activity. This could indicate an untapped opportunity or seasonal lull.`;
+        difficultyLevel = averageChannelSize < 10_000 ? "BEGINNER" : "INTERMEDIATE";
+      } else if (averageChannelSize < 10_000 && multiplierVariance > 1.0) {
+        nicheStatus = "EMERGING";
+        explanation = `Small channels with high performance variance. Some videos are gaining traction, suggesting early-stage opportunity.`;
+        difficultyLevel = "BEGINNER";
+      } else if (isEventDriven && isBursty) {
+        nicheStatus = "EVENT_DRIVEN";
+        explanation = `Event-driven content with bursty upload patterns. Timing and speed matter more than channel size here.`;
+        difficultyLevel = "INTERMEDIATE";
+      } else if (isDeclining) {
+        nicheStatus = "DECLINING";
+        explanation = `Low volume niche with no recent breakouts. May be past its peak or require a fresh angle.`;
+        difficultyLevel = "EXPERT";
+      } else {
+        // Default to QUIET if no specific pattern matches
+        nicheStatus = "QUIET";
+        explanation = `No clear breakout patterns detected. This could indicate low competition or a niche in transition.`;
+        difficultyLevel = averageChannelSize < 20_000 ? "BEGINNER" : "INTERMEDIATE";
+      }
+
+      // Generate suggested searches based on query
+      const suggestedSearches: string[] = [];
+      const words = trimmedQuery.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      
+      // Core topic (strip adjectives and years)
+      const coreWords = words.filter(w => !/^(best|top|new|latest|2024|2025|review|reviews)$/.test(w));
+      if (coreWords.length > 0) {
+        suggestedSearches.push(coreWords.join(" "));
+      }
+
+      // Format angle variations
+      if (!words.includes("shorts")) {
+        suggestedSearches.push(`${coreWords.slice(0, 2).join(" ")} shorts`);
+      }
+      if (!words.includes("tutorial")) {
+        suggestedSearches.push(`${coreWords[0]} tutorial`);
+      }
+
+      // Adjacent niche (simple synonym-based)
+      if (words.includes("productivity")) {
+        suggestedSearches.push("Notion alternatives");
+      } else if (words.includes("ai") || words.includes("artificial")) {
+        suggestedSearches.push("AI tools for creators");
+      } else if (words.includes("gaming") || words.includes("game")) {
+        suggestedSearches.push("gaming challenge");
+      }
+
+      // Limit to 3 suggestions
+      nicheAnalysis = {
+        nicheStatus,
+        scannedVideos: allVideos.length,
+        averageChannelSize,
+        dominantChannelThreshold,
+        explanation,
+        difficultyLevel,
+        suggestedSearches: suggestedSearches.slice(0, 3),
+      };
+    }
+
     // Detect near-misses if strict results are empty
     let nearMisses: any[] = [];
     if (results.length === 0) {
@@ -375,14 +524,22 @@ export async function GET(req: Request) {
         })
       : [];
 
-    // Return results with nearMisses if present
+    // Return results with nearMisses and/or nicheAnalysis if present
+    const response: any = {
+      results: resultsWithMetadata,
+    };
+
+    // Include near-misses if present
     if (nearMissesWithMetadata.length > 0) {
-      return NextResponse.json({
-        results: resultsWithMetadata,
-        nearMisses: nearMissesWithMetadata,
-      });
+      response.nearMisses = nearMissesWithMetadata;
     }
-    return NextResponse.json(resultsWithMetadata);
+
+    // Include niche analysis when no breakouts found (provides intelligence about why)
+    if (nicheAnalysis) {
+      response.nicheAnalysis = nicheAnalysis;
+    }
+
+    return NextResponse.json(response);
   } catch (err: any) {
     return NextResponse.json(
       {
