@@ -9,6 +9,10 @@ export const runtime = "nodejs";
 // Force dynamic rendering (webhooks are always dynamic)
 export const dynamic = "force-dynamic";
 
+// Stripe can retry webhook deliveries; we must ensure each event is applied once.
+// TODO: Persist this in a durable store (DB/KV) to survive server restarts.
+const processedStripeEventIds = new Set<string>();
+
 /**
  * Stripe webhook handler
  * 
@@ -119,18 +123,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Idempotency: Stripe retries can deliver the same event multiple times.
+  if (processedStripeEventIds.has(event.id)) {
+    console.log(`[Webhook] Duplicate event received: ${event.type} (id: ${event.id})`);
+    return NextResponse.json({ received: true, duplicate: true });
+  }
+
   // Handle checkout.session.completed and customer.subscription.deleted events
   if (event.type === "checkout.session.completed") {
     // Handle checkout completion (existing logic)
-    return handleCheckoutCompleted(event, stripe);
+    const response = await handleCheckoutCompleted(event, stripe);
+    if (response.status === 200) {
+      processedStripeEventIds.add(event.id);
+    }
+    return response;
   } else if (event.type === "customer.subscription.deleted") {
     // Handle subscription cancellation
-    return handleSubscriptionDeleted(event);
+    const response = await handleSubscriptionDeleted(event);
+    if (response.status === 200) {
+      processedStripeEventIds.add(event.id);
+    }
+    return response;
   } else {
     // Other events are logged but ignored
     console.log(`[Webhook] Received unhandled event type: ${event.type} (id: ${event.id})`);
     // Return 200 to acknowledge receipt, even if we don't process it
     // This prevents Stripe from retrying unhandled events
+    processedStripeEventIds.add(event.id);
     return NextResponse.json({ 
       received: true,
       event_type: event.type,

@@ -6,6 +6,21 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const FREE_RESULT_LIMIT = 5;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 10;
+const MAX_QUERY_LENGTH = 100;
+
+// In-memory rate limit store (per instance). Replace with durable store in production.
+const rateLimitStore = new Map<string, { count: number; windowStart: number }>();
+
+function getClientIp(req: Request): string {
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0]?.trim() || "unknown";
+  }
+  const realIp = req.headers.get("x-real-ip");
+  return realIp?.trim() || "unknown";
+}
 
 // Niche analysis types for zero-result intelligence
 export type NicheStatus = "SATURATED" | "QUIET" | "EMERGING" | "EVENT_DRIVEN" | "DECLINING";
@@ -23,6 +38,28 @@ export interface NicheAnalysis {
 
 export async function GET(req: Request) {
   try {
+    // Rate limiting: Stripe/YouTube APIs are sensitive to abuse; Stripe can retry as well.
+    // Use per-user when authenticated, otherwise per-IP. Upgrade to KV/DB for multi-instance.
+    const { userId } = await auth();
+    const rateLimitKey = userId ? `user:${userId}` : `ip:${getClientIp(req)}`;
+    const now = Date.now();
+    const existing = rateLimitStore.get(rateLimitKey);
+
+    if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
+      rateLimitStore.set(rateLimitKey, { count: 1, windowStart: now });
+    } else if (existing.count >= RATE_LIMIT_MAX) {
+      const remainingSeconds = Math.max(
+        0,
+        Math.ceil((RATE_LIMIT_WINDOW_MS - (now - existing.windowStart)) / 1000)
+      );
+      return NextResponse.json(
+        { error: "Too many requests. Please wait a minute and try again." },
+        { status: 429, headers: { "Retry-After": String(remainingSeconds) } }
+      );
+    } else {
+      existing.count += 1;
+    }
+
     // Get API key
     const API_KEY = process.env.YOUTUBE_API_KEY;
     if (!API_KEY) {
@@ -35,15 +72,20 @@ export async function GET(req: Request) {
     // Parse and validate query
     const url = new URL(req.url);
     const query = url.searchParams.get("q");
+    const trimmedQuery = query ? query.trim() : "";
     
-    if (!query || query.trim().length === 0) {
+    if (trimmedQuery.length === 0) {
       return NextResponse.json(
-        { error: "Missing or empty query parameter" },
+        { error: "Search query cannot be empty." },
         { status: 400 }
       );
     }
-
-    const trimmedQuery = query.trim();
+    if (trimmedQuery.length > MAX_QUERY_LENGTH) {
+      return NextResponse.json(
+        { error: `Search query must be ${MAX_QUERY_LENGTH} characters or less.` },
+        { status: 400 }
+      );
+    }
 
     // Build YouTube Search API request
     const searchParams = new URLSearchParams({
@@ -61,18 +103,10 @@ export async function GET(req: Request) {
     const searchRes = await fetch(searchUrl);
     
     if (!searchRes.ok) {
-      const errorBody = await searchRes.text();
-      let errorMessage = "Unable to search YouTube videos";
-      try {
-        const errorJson = JSON.parse(errorBody);
-        errorMessage = errorJson.error?.message || errorMessage;
-      } catch {
-        // Use default error message if parsing fails
-      }
-      return NextResponse.json(
-        { error: errorMessage },
-        { status: searchRes.status >= 400 && searchRes.status < 500 ? searchRes.status : 502 }
-      );
+      // Quota or upstream errors should be sanitized for clients.
+      const safeMessage = "Search temporarily unavailable. Please try again later.";
+      const statusCode = searchRes.status >= 500 ? 502 : searchRes.status;
+      return NextResponse.json({ error: safeMessage }, { status: statusCode });
     }
 
     const searchData = await searchRes.json();
@@ -110,18 +144,10 @@ export async function GET(req: Request) {
     const videoRes = await fetch(videoUrl);
 
     if (!videoRes.ok) {
-      const errorBody = await videoRes.text();
-      let errorMessage = "Unable to fetch video statistics";
-      try {
-        const errorJson = JSON.parse(errorBody);
-        errorMessage = errorJson.error?.message || errorMessage;
-      } catch {
-        // Use default error message if parsing fails
-      }
-      return NextResponse.json(
-        { error: errorMessage },
-        { status: videoRes.status >= 400 && videoRes.status < 500 ? videoRes.status : 502 }
-      );
+      // Quota or upstream errors should be sanitized for clients.
+      const safeMessage = "Search temporarily unavailable. Please try again later.";
+      const statusCode = videoRes.status >= 500 ? 502 : videoRes.status;
+      return NextResponse.json({ error: safeMessage }, { status: statusCode });
     }
 
     const videoData = await videoRes.json();
@@ -141,18 +167,10 @@ export async function GET(req: Request) {
     const channelRes = await fetch(channelUrl);
 
     if (!channelRes.ok) {
-      const errorBody = await channelRes.text();
-      let errorMessage = "Unable to fetch channel statistics";
-      try {
-        const errorJson = JSON.parse(errorBody);
-        errorMessage = errorJson.error?.message || errorMessage;
-      } catch {
-        // Use default error message if parsing fails
-      }
-      return NextResponse.json(
-        { error: errorMessage },
-        { status: channelRes.status >= 400 && channelRes.status < 500 ? channelRes.status : 502 }
-      );
+      // Quota or upstream errors should be sanitized for clients.
+      const safeMessage = "Search temporarily unavailable. Please try again later.";
+      const statusCode = channelRes.status >= 500 ? 502 : channelRes.status;
+      return NextResponse.json({ error: safeMessage }, { status: statusCode });
     }
 
     const channelData = await channelRes.json();
@@ -168,7 +186,6 @@ export async function GET(req: Request) {
     }
 
     // Check if user is Pro
-    const { userId } = await auth();
     let isPro = false;
     
     if (userId) {
