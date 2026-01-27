@@ -366,6 +366,7 @@ export function HomeClient() {
   const [results, setResults] = useState<OutlierResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [savedSearches, setSavedSearches] = useState<string[]>([]);
   const [nearMisses, setNearMisses] = useState<(OutlierResult & { reason?: string })[]>([]);
   const [showNearMisses, setShowNearMisses] = useState(false);
@@ -458,61 +459,20 @@ export function HomeClient() {
   function loadSearch(searchQuery: string) {
     if (!userIsPro) return;
     setQuery(searchQuery);
-    // Trigger search automatically
-    const form = document.querySelector("form");
-    if (form) {
-      form.requestSubmit();
-    }
+    // Trigger search directly with the provided query
+    performSearch(searchQuery);
   }
 
-  function handleExampleSearch(exampleQuery: string) {
-    setQuery(exampleQuery);
-    // Trigger search automatically
-    const form = document.querySelector("form");
-    if (form) {
-      form.requestSubmit();
-    }
-  }
-
-
-  async function handleCheckout() {
-    try {
-      setLoading(true);
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to create checkout session");
-      }
-
-      const { url } = await response.json();
-      if (url) {
-        window.location.href = url;
-      } else {
-        throw new Error("No checkout URL received");
-      }
-    } catch (err: any) {
-      setError(err.message || "Failed to start checkout. Please try again.");
-      setLoading(false);
-    }
-  }
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-
-    const trimmed = query.trim();
+  // Canonical search function - used by both manual submit and suggested searches
+  async function performSearch(searchTerm: string) {
+    const trimmed = searchTerm.trim();
     if (!trimmed) {
-      setError("Please enter a search query.");
-      return;
+      return; // Silently return if empty (no error for programmatic calls)
     }
 
     setLoading(true);
     setError(null);
+    setValidationError(null);
     setHasSearched(true); // Mark that a search has been executed
     setNearMisses([]); // Clear nearMisses on new search
     setNicheAnalysis(null); // Clear niche analysis on new search
@@ -548,6 +508,52 @@ export function HomeClient() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleExampleSearch(exampleQuery: string) {
+    setQuery(exampleQuery);
+    // Trigger search directly with the provided term
+    performSearch(exampleQuery);
+  }
+
+  async function handleCheckout() {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to create checkout session");
+      }
+
+      const { url } = await response.json();
+      if (url) {
+        window.location.href = url;
+      } else {
+        throw new Error("No checkout URL received");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to start checkout. Please try again.");
+      setLoading(false);
+    }
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setValidationError("Please enter a search query.");
+      return;
+    }
+
+    // Use canonical search function
+    await performSearch(query);
   }
 
   const filteredResults = [...results]
@@ -930,8 +936,9 @@ export function HomeClient() {
               </button>
             ))}
           </div>
-          {error && (
-            <p className="text-xs text-red-400 text-center">{error}</p>
+          {/* Validation error: only for explicit empty-submit before any successful search */}
+          {validationError && !hasSearched && (
+            <p className="text-xs text-red-400 text-center">{validationError}</p>
           )}
         </form>
 
@@ -1102,13 +1109,7 @@ export function HomeClient() {
                     <button
                       key={idx}
                       type="button"
-                      onClick={() => {
-                        setQuery(suggestion);
-                        const form = document.querySelector("form");
-                        if (form) {
-                          form.requestSubmit();
-                        }
-                      }}
+                      onClick={() => handleExampleSearch(suggestion)}
                       className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-md text-xs text-neutral-300 hover:bg-neutral-750 hover:border-neutral-600 transition-colors"
                     >
                       {suggestion}
@@ -1140,12 +1141,22 @@ export function HomeClient() {
                   {/* Stats Grid */}
                   <div className="grid grid-cols-3 gap-3">
                     <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
-                      <div className="text-xs text-neutral-400 mb-1">Scanned</div>
-                      <div className="text-sm font-semibold text-white">{nicheAnalysis.scannedVideos} videos</div>
+                      <div className="text-xs text-neutral-400 mb-1">Sample size</div>
+                      <div className="text-sm font-semibold text-white">
+                        {nicheAnalysis.scannedVideos} videos
+                      </div>
+                      <p className="mt-1 text-[0.65rem] text-neutral-500 leading-snug">
+                        Scanned the top {nicheAnalysis.scannedVideos} most relevant recent videos under our strict breakout criteria.
+                      </p>
                     </div>
                     <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
-                      <div className="text-xs text-neutral-400 mb-1">Avg Channel</div>
-                      <div className="text-sm font-semibold text-white">{formatNumber(nicheAnalysis.averageChannelSize)}</div>
+                      <div className="text-xs text-neutral-400 mb-1">Avg channel size</div>
+                      <div className="text-sm font-semibold text-white">
+                        {formatNumber(nicheAnalysis.averageChannelSize)}
+                      </div>
+                      <p className="mt-1 text-[0.65rem] text-neutral-500 leading-snug">
+                        Additional context includes broader market averages for comparison, even when you filter to smaller channels.
+                      </p>
                     </div>
                     <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
                       <div className="text-xs text-neutral-400 mb-1">Difficulty</div>
@@ -1172,7 +1183,17 @@ export function HomeClient() {
                         What this means
                       </h4>
                       <p className="text-xs text-neutral-400 leading-relaxed">
-                        We scanned {nicheAnalysis.scannedVideos} recent videos from channels under 50k subscribers. Our criteria: published within 30 days, multiplier of 3× or higher. None met these thresholds.
+                        We scanned the top {nicheAnalysis.scannedVideos} most relevant recent videos that match this query. Our criteria: published within 30 days, primarily channels under 50k subscribers, and a 3×+ breakout multiplier.
+                      </p>
+                    </div>
+
+                    {/* Why this is useful */}
+                    <div className="space-y-2 pt-3 border-t border-neutral-800">
+                      <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                        Why this is useful
+                      </h4>
+                      <p className="text-xs text-neutral-400 leading-relaxed">
+                        We intentionally analyze a small, high-signal sample to avoid noise from large legacy channels. This is diagnostic market intelligence, not a &quot;search everything&quot; engine.
                       </p>
                     </div>
 
@@ -1196,13 +1217,7 @@ export function HomeClient() {
                           <button
                             key={idx}
                             type="button"
-                            onClick={() => {
-                              setQuery(suggestion);
-                              const form = document.querySelector("form");
-                              if (form) {
-                                form.requestSubmit();
-                              }
-                            }}
+                            onClick={() => handleExampleSearch(suggestion)}
                             className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-md text-xs text-neutral-300 hover:bg-neutral-750 hover:border-neutral-600 transition-colors"
                           >
                             {suggestion}
@@ -1676,13 +1691,7 @@ export function HomeClient() {
                       {getExampleRefinements(query).map((refinement, idx) => (
                         <button
                           key={idx}
-                          onClick={() => {
-                            setQuery(refinement);
-                            const form = document.querySelector("form");
-                            if (form) {
-                              form.requestSubmit();
-                            }
-                          }}
+                          onClick={() => handleExampleSearch(refinement)}
                           className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-md text-xs text-neutral-300 hover:bg-neutral-750 hover:border-neutral-600 transition-colors"
                         >
                           {refinement}
