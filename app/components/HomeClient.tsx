@@ -547,6 +547,7 @@ export function HomeClient() {
 
   // Canonical search function - used by both manual submit and suggested searches
   async function performSearch(searchTerm: string) {
+    console.log("[search] triggered with query:", query);
     const trimmed = searchTerm.trim();
     if (!trimmed) {
       return; // Silently return if empty (no error for programmatic calls)
@@ -556,6 +557,7 @@ export function HomeClient() {
     setError(null);
     setValidationError(null);
     setHasSearched(true); // Mark that a search has been executed
+    setHasSubmittedSearch(true);
     setNearMisses([]); // Clear nearMisses on new search
     setNicheAnalysis(null); // Clear niche analysis on new search
     setRisingSignals([]); // Clear rising signals on new search
@@ -611,7 +613,6 @@ export function HomeClient() {
 
   function handleExampleSearch(exampleQuery: string) {
     setQuery(exampleQuery);
-    setHasSubmittedSearch(true);
     // Trigger search directly with the provided term
     performSearch(exampleQuery);
   }
@@ -646,13 +647,13 @@ export function HomeClient() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
+    setHasSubmittedSearch(true);
     const trimmed = query.trim();
     if (!trimmed) {
       setValidationError("Please enter a search query.");
       return;
     }
 
-     setHasSubmittedSearch(true);
     // Use canonical search function
     await performSearch(query);
   }
@@ -1031,7 +1032,12 @@ export function HomeClient() {
             <input
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                if (validationError) {
+                  setValidationError(null);
+                }
+              }}
               placeholder="Search by niche + format (e.g. 'gaming horror', 'roblox myths')"
               className="w-full rounded-md bg-neutral-900 border border-neutral-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/70 focus:border-red-500/70 placeholder:text-neutral-500"
             />
