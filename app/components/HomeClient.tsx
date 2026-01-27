@@ -389,6 +389,7 @@ export function HomeClient() {
   const [hasSubmittedSearch, setHasSubmittedSearch] = useState(false);
   const [queryHistoryCount, setQueryHistoryCount] = useState(0);
   const [adjacentOpps, setAdjacentOpps] = useState<AdjacentOpportunity[]>([]);
+  const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
 
   // Default to higher cap for Pro users to unlock benefits immediately
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
@@ -414,6 +415,13 @@ export function HomeClient() {
       setTimeout(() => setShowCheckoutSuccess(false), 10000);
     }
   }, [searchParams, router]);
+
+  // Auto-dismiss rate limit notice after a short delay
+  useEffect(() => {
+    if (!rateLimitMessage) return;
+    const timeout = setTimeout(() => setRateLimitMessage(null), 7000);
+    return () => clearTimeout(timeout);
+  }, [rateLimitMessage]);
 
   // Load onboarding state (whether user has ever seen a successful breakout search)
   useEffect(() => {
@@ -452,7 +460,7 @@ export function HomeClient() {
 
       for (const term of candidates) {
         try {
-          const res = await fetch(`/api/search?q=${encodeURIComponent(term)}&mode=momentum`);
+          const res = await fetch(`/api/search?q=${encodeURIComponent(term)}&mode=momentum&rateLimitScope=adjacent`);
           if (!res.ok) continue;
 
           const data = await res.json();
@@ -552,9 +560,24 @@ export function HomeClient() {
       return; // Silently return if empty (no error for programmatic calls)
     }
 
+    const previousState = {
+      results,
+      nearMisses,
+      nicheAnalysis,
+      risingSignals,
+      adjacentOpps,
+      showRisingSignals,
+      showNearMisses,
+      dismissedSoftLanding,
+      searchSavedConfirmation,
+      hasSearched,
+      hasSubmittedSearch,
+    };
+
     setLoading(true);
     setError(null);
     setValidationError(null);
+    setRateLimitMessage(null);
     setHasSearched(true); // Mark that a search has been executed
     setHasSubmittedSearch(true);
     // Clear previous UI state before fetching new results
@@ -572,6 +595,22 @@ export function HomeClient() {
       const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}&mode=${searchMode || "momentum"}`);
 
       if (!res.ok) {
+        if (res.status === 429) {
+          setRateLimitMessage("Too many searches at once. Please wait a minute or upgrade for unlimited access.");
+          // Restore previous UI state so results remain intact
+          setResults(previousState.results);
+          setNearMisses(previousState.nearMisses);
+          setNicheAnalysis(previousState.nicheAnalysis);
+          setRisingSignals(previousState.risingSignals);
+          setAdjacentOpps(previousState.adjacentOpps);
+          setShowRisingSignals(previousState.showRisingSignals);
+          setShowNearMisses(previousState.showNearMisses);
+          setDismissedSoftLanding(previousState.dismissedSoftLanding);
+          setSearchSavedConfirmation(previousState.searchSavedConfirmation);
+          setHasSearched(previousState.hasSearched);
+          setHasSubmittedSearch(previousState.hasSubmittedSearch);
+          return;
+        }
         const data = await res.json().catch(() => null);
         const message = data?.error || "Unable to search for outliers. Please try again later.";
         throw new Error(message);
@@ -1120,6 +1159,15 @@ export function HomeClient() {
           {validationError && !hasSearched && (
             <p className="text-xs text-red-400 text-center">{validationError}</p>
           )}
+        {rateLimitMessage && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="mt-3 max-w-2xl mx-auto rounded-lg border border-red-500/30 bg-red-900/20 px-4 py-3 text-center text-xs text-red-200"
+          >
+            {rateLimitMessage}
+          </div>
+        )}
         </form>
 
         {/* Saved Searches Section */}

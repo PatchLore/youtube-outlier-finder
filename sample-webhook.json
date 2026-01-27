@@ -1,0 +1,13 @@
+{
+  "id": "evt_test_12345_2",
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_67890",
+      "customer": "cus_test_123",
+      "amount_total": 2000,
+      "currency": "usd",
+      "client_reference_id": "user_38bq074bqwhEqgIxv1GsIWmZHxv"
+    }
+  }
+}

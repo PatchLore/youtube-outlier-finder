@@ -38,28 +38,6 @@ export interface NicheAnalysis {
 
 export async function GET(req: Request) {
   try {
-    // Rate limiting: Stripe/YouTube APIs are sensitive to abuse; Stripe can retry as well.
-    // Use per-user when authenticated, otherwise per-IP. Upgrade to KV/DB for multi-instance.
-    const { userId } = await auth();
-    const rateLimitKey = userId ? `user:${userId}` : `ip:${getClientIp(req)}`;
-    const now = Date.now();
-    const existing = rateLimitStore.get(rateLimitKey);
-
-    if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
-      rateLimitStore.set(rateLimitKey, { count: 1, windowStart: now });
-    } else if (existing.count >= RATE_LIMIT_MAX) {
-      const remainingSeconds = Math.max(
-        0,
-        Math.ceil((RATE_LIMIT_WINDOW_MS - (now - existing.windowStart)) / 1000)
-      );
-      return NextResponse.json(
-        { error: "Too many requests. Please wait a minute and try again." },
-        { status: 429, headers: { "Retry-After": String(remainingSeconds) } }
-      );
-    } else {
-      existing.count += 1;
-    }
-
     // Get API key
     const API_KEY = process.env.YOUTUBE_API_KEY;
     if (!API_KEY) {
@@ -85,6 +63,30 @@ export async function GET(req: Request) {
         { error: `Search query must be ${MAX_QUERY_LENGTH} characters or less.` },
         { status: 400 }
       );
+    }
+
+    // Rate limiting: apply after validation so invalid requests don't count.
+    // Use per-user when authenticated, otherwise per-IP. Upgrade to KV/DB for multi-instance.
+    const { userId } = await auth();
+    const scope = url.searchParams.get("rateLimitScope") || "primary";
+    const baseKey = userId ? `user:${userId}` : `ip:${getClientIp(req)}`;
+    const rateLimitKey = `${baseKey}:${scope}`;
+    const now = Date.now();
+    const existing = rateLimitStore.get(rateLimitKey);
+
+    if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
+      rateLimitStore.set(rateLimitKey, { count: 1, windowStart: now });
+    } else if (existing.count >= RATE_LIMIT_MAX) {
+      const remainingSeconds = Math.max(
+        0,
+        Math.ceil((RATE_LIMIT_WINDOW_MS - (now - existing.windowStart)) / 1000)
+      );
+      return NextResponse.json(
+        { error: "Too many requests. Please wait a minute and try again." },
+        { status: 429, headers: { "Retry-After": String(remainingSeconds) } }
+      );
+    } else {
+      existing.count += 1;
     }
 
     // Build YouTube Search API request
