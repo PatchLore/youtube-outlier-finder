@@ -337,6 +337,13 @@ function generateRefinementSuggestions(query: string): string[] {
 }
 
 const FREE_LIMIT = 5;
+const ONBOARDING_BREAKOUT_KEY = "youtube-outlier-has-breakout";
+
+type AdjacentOpportunity = {
+  term: string;
+  breakoutCount: number;
+  avgMultiplier: number;
+};
 
 type SubscriberCap = "<10k" | "<50k" | "<100k" | "<250k" | "<500k" | "<1M" | "nolimit";
 type ViewFloor = ">=1k" | ">=5k" | ">=10k" | "nomin";
@@ -377,6 +384,10 @@ export function HomeClient() {
   const [showRisingSignals, setShowRisingSignals] = useState(false);
   const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  // Lightweight UX flag: has the user ever seen at least one 3×+ breakout?
+  const [hasSeenBreakout, setHasSeenBreakout] = useState(false);
+  const [queryHistoryCount, setQueryHistoryCount] = useState(0);
+  const [adjacentOpps, setAdjacentOpps] = useState<AdjacentOpportunity[]>([]);
 
   // Default to higher cap for Pro users to unlock benefits immediately
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
@@ -402,6 +413,76 @@ export function HomeClient() {
       setTimeout(() => setShowCheckoutSuccess(false), 10000);
     }
   }, [searchParams, router]);
+
+  // Load onboarding state (whether user has ever seen a successful breakout search)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem(ONBOARDING_BREAKOUT_KEY);
+      if (stored === "true") {
+        setHasSeenBreakout(true);
+      }
+    }
+  }, []);
+
+  // Compute adjacent opportunities when quiet or user has explored multiple queries
+  useEffect(() => {
+    if (!nicheAnalysis) {
+      setAdjacentOpps([]);
+      return;
+    }
+
+    const isQuiet = nicheAnalysis.nicheStatus === "QUIET";
+    if (!isQuiet && queryHistoryCount <= 1) {
+      // Only suggest adjacents after multiple queries if not QUIET
+      setAdjacentOpps([]);
+      return;
+    }
+
+    const candidates = (nicheAnalysis.suggestedSearches || []).slice(0, 5);
+    if (!candidates.length) {
+      setAdjacentOpps([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      const results: AdjacentOpportunity[] = [];
+
+      for (const term of candidates) {
+        try {
+          const res = await fetch(`/api/search?q=${encodeURIComponent(term)}&mode=momentum`);
+          if (!res.ok) continue;
+
+          const data = await res.json();
+          const rawResults: any[] = Array.isArray(data) ? data : (data.results || []);
+          const breakouts = rawResults.filter((v) => typeof v?.multiplier === "number" && v.multiplier >= 3);
+          if (breakouts.length < 2) continue;
+
+          const avgMult =
+            breakouts.reduce((sum, v) => sum + (v.multiplier as number), 0) / breakouts.length;
+
+          results.push({
+            term,
+            breakoutCount: breakouts.length,
+            avgMultiplier: avgMult,
+          });
+
+          if (results.length >= 3) break;
+        } catch {
+          // Ignore individual suggestion errors
+        }
+      }
+
+      if (!cancelled) {
+        setAdjacentOpps(results);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [nicheAnalysis, queryHistoryCount]);
 
   // Load saved searches from localStorage on mount
   useEffect(() => {
@@ -492,16 +573,33 @@ export function HomeClient() {
       }
 
       const data = await res.json();
-      // Handle response format: array (normal) or object with results + nearMisses
+      // Normalize results from API (array or object) into a single results array
+      let newResults: OutlierResult[] = [];
       if (Array.isArray(data)) {
-        setResults(data || []);
+        newResults = (data || []) as OutlierResult[];
         setNearMisses([]);
+        setNicheAnalysis(null);
+        setRisingSignals([]);
       } else {
-        setResults(data.results || []);
-        setNearMisses(data.nearMisses || []);
-        setNicheAnalysis(data.nicheAnalysis || null);
-        setRisingSignals(data.risingSignals || []);
+        newResults = (data.results || []) as OutlierResult[];
+        setNearMisses((data.nearMisses || []) as (OutlierResult & { reason?: string })[]);
+        setNicheAnalysis((data.nicheAnalysis || null) as NicheAnalysis | null);
+        setRisingSignals((data.risingSignals || []) as OutlierResult[]);
       }
+
+      setResults(newResults);
+
+      // If this search returned at least one breakout result (3×+), mark onboarding as complete
+      const hasBreakout = newResults.some((v) => typeof v.multiplier === "number" && v.multiplier >= 3);
+      if (hasBreakout && !hasSeenBreakout) {
+        setHasSeenBreakout(true);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(ONBOARDING_BREAKOUT_KEY, "true");
+        }
+      }
+
+      // Track how many distinct searches have returned results/analysis
+      setQueryHistoryCount((prev) => prev + 1);
     } catch (err: any) {
       setError(err.message || "Unable to search for outliers. Please try again.");
       setResults([]);
@@ -880,6 +978,46 @@ export function HomeClient() {
       {/* Search Section */}
       <div id="search" className="mx-auto max-w-7xl px-6 pb-16">
 
+        {/* Onboarding state: curated breakout searches for first-time users */}
+        {!hasSeenBreakout && (
+          <div className="max-w-2xl mx-auto mb-8 space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold text-neutral-100">
+                🔥 Try a search with live breakouts
+              </h2>
+              <p className="mt-1 text-xs text-neutral-400 leading-relaxed">
+                These searches currently have videos outperforming their channel size. Click one to see how the tool works.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleExampleSearch("Notion templates")}
+                className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 border border-neutral-700 hover:border-purple-500/70 hover:bg-neutral-800 transition-colors"
+              >
+                Notion templates (4 breakouts)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExampleSearch("Faceless YouTube shorts")}
+                className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 border border-neutral-700 hover:border-purple-500/70 hover:bg-neutral-800 transition-colors"
+              >
+                Faceless YouTube shorts (7 breakouts)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExampleSearch("ChatGPT workflows")}
+                className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 border border-neutral-700 hover:border-purple-500/70 hover:bg-neutral-800 transition-colors"
+              >
+                ChatGPT workflows (3 breakouts)
+              </button>
+            </div>
+            <p className="text-xs text-neutral-500">
+              Tip: Breakouts rarely come from formal or list-style searches. Start broad, then narrow.
+            </p>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto mb-8 space-y-3">
           <div className="flex items-center justify-center gap-4 text-xs text-neutral-500 mb-2">
             <span>Replicate winning video ideas</span>
@@ -1004,8 +1142,8 @@ export function HomeClient() {
           </div>
         )}
 
-        {/* Soft Landing: Near-miss results */}
-        {hasSearched && !loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
+        {/* Soft Landing: Near-miss results (only after user has seen a breakout) */}
+        {hasSearched && hasSeenBreakout && !loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
           <div className="max-w-3xl mx-auto mb-6 p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg">
             <div className="space-y-4">
               <div className="text-center space-y-2">
@@ -1096,8 +1234,8 @@ export function HomeClient() {
           </div>
         )}
 
-        {/* Search Refinement Hint - Show when strict results === 0 and query needs refinement */}
-        {hasSearched && !loading && !error && results.length === 0 && query.trim() !== "" && needsRefinement(query) && (
+        {/* Search Refinement Hint - Show when strict results === 0 and query needs refinement (post-breakout only) */}
+        {hasSearched && hasSeenBreakout && !loading && !error && results.length === 0 && query.trim() !== "" && needsRefinement(query) && (
           <div className="max-w-2xl mx-auto">
             <div className="p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
               <div className="space-y-3">
@@ -1121,7 +1259,7 @@ export function HomeClient() {
           </div>
         )}
 
-        {hasSearched && !loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
+        {hasSearched && hasSeenBreakout && !loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
           <div className="max-w-2xl mx-auto space-y-4">
             {/* Market Heat Check Card - Shows niche intelligence when no breakouts found */}
             {nicheAnalysis && (
@@ -1131,82 +1269,216 @@ export function HomeClient() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="text-lg">📊</span>
-                      <h3 className="text-base font-semibold text-white">Market Heat Check</h3>
+                      {nicheAnalysis.nicheStatus === "QUIET" ? (
+                        <h3 className="text-base font-semibold text-white">🌊 Market Heat Check: QUIET</h3>
+                      ) : (
+                        <h3 className="text-base font-semibold text-white">Market Heat Check</h3>
+                      )}
                     </div>
                     <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getNicheStatusColor(nicheAnalysis.nicheStatus)}`}>
                       {getNicheStatusIcon(nicheAnalysis.nicheStatus)} {nicheAnalysis.nicheStatus}
                     </span>
                   </div>
 
-                  {/* Stats Grid */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
-                      <div className="text-xs text-neutral-400 mb-1">Sample size</div>
-                      <div className="text-sm font-semibold text-white">
-                        {nicheAnalysis.scannedVideos} videos
+                  {nicheAnalysis.nicheStatus === "QUIET" ? (
+                    <>
+                      {/* QUIET explanation */}
+                      <div className="space-y-3">
+                        <p className="text-sm text-neutral-300 leading-relaxed">
+                          &apos;{query || "This search"}&apos; is currently showing normal performance.
+                        </p>
+                        <div className="space-y-1">
+                          <p className="text-xs text-neutral-400 leading-relaxed">
+                            We scanned 25 recent videos from channels under 50k subscribers.
+                          </p>
+                          <p className="text-xs text-neutral-400 leading-relaxed">
+                            None showed abnormal performance (3×+ views relative to channel size).
+                          </p>
+                        </div>
                       </div>
-                      <p className="mt-1 text-[0.65rem] text-neutral-500 leading-snug">
-                        Scanned the top {nicheAnalysis.scannedVideos} most relevant recent videos under our strict breakout criteria.
-                      </p>
-                    </div>
-                    <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
-                      <div className="text-xs text-neutral-400 mb-1">Avg channel size</div>
-                      <div className="text-sm font-semibold text-white">
-                        {formatNumber(nicheAnalysis.averageChannelSize)}
+
+                      {/* What this tells you */}
+                      <div className="space-y-2 pt-4 border-t border-neutral-800">
+                        <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                          What this tells you
+                        </h4>
+                        <ul className="list-disc list-inside space-y-1 text-xs text-neutral-300">
+                          <li>No small creators are breaking out here right now</li>
+                          <li>Videos are performing as expected for their size</li>
+                          <li>This niche may be stable or needs a new framing</li>
+                        </ul>
                       </div>
-                      <p className="mt-1 text-[0.65rem] text-neutral-500 leading-snug">
-                        Additional context includes broader market averages for comparison, even when you filter to smaller channels.
-                      </p>
-                    </div>
-                    <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
-                      <div className="text-xs text-neutral-400 mb-1">Difficulty</div>
-                      <div className={`text-xs font-semibold px-2 py-0.5 rounded-full border inline-block ${getDifficultyColor(nicheAnalysis.difficultyLevel)}`}>
-                        {nicheAnalysis.difficultyLevel}
+
+                      {/* Emerging Signals (Optional STATE D) */}
+                      {risingSignals.length > 0 && (
+                        <div className="space-y-2 pt-4 border-t border-neutral-800">
+                          <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                            🔥 Emerging Signals (Not Breakouts Yet)
+                          </h4>
+                          <p className="text-xs text-neutral-400 leading-relaxed">
+                            These videos are performing better than average but haven’t crossed the breakout threshold. They may be early indicators.
+                          </p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                            {risingSignals.map((video) => (
+                              <a
+                                key={video.id}
+                                href={`https://www.youtube.com/watch?v=${video.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex gap-2 bg-neutral-950 border border-neutral-800 rounded-lg p-2 hover:border-neutral-600 transition-colors"
+                              >
+                                <div className="w-20 h-12 bg-neutral-800 rounded overflow-hidden flex-shrink-0">
+                                  <img
+                                    src={video.thumbnail}
+                                    alt={video.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <div className="flex-1 space-y-1">
+                                  <p className="text-xs font-medium text-neutral-200 line-clamp-2">
+                                    {video.title}
+                                  </p>
+                                  <p className="text-[0.7rem] text-neutral-400 truncate">
+                                    {video.channelTitle}
+                                  </p>
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[0.7rem] font-semibold border border-yellow-500/40 bg-yellow-500/10 text-yellow-200">
+                                    {video.multiplier.toFixed(1)}× — Strong, but not an outlier
+                                  </span>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                          <p className="text-[0.7rem] text-neutral-500 leading-relaxed">
+                            These are not guaranteed opportunities. True breakouts always exceed 3×.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Adjacent Opportunities (STATE: Adjacent) */}
+                      {adjacentOpps.length > 0 && (
+                        <div className="space-y-2 pt-4 border-t border-neutral-800">
+                          <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                            🔍 Adjacent Opportunities
+                          </h4>
+                          <p className="text-xs text-neutral-400 leading-relaxed">
+                            Similar audiences, stronger signals right now.
+                          </p>
+                          <div className="space-y-1">
+                            {adjacentOpps.map((opp) => (
+                              <button
+                                key={opp.term}
+                                type="button"
+                                onClick={() => handleExampleSearch(opp.term)}
+                                className="w-full text-left text-xs text-neutral-300 hover:text-white px-0 py-1"
+                              >
+                                {`${opp.term} — ${opp.breakoutCount} breakouts (avg ${opp.avgMultiplier.toFixed(1)}×)`}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* What to try next */}
+                      <div className="space-y-2 pt-4 border-t border-neutral-800">
+                        <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                          What to try next
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleExampleSearch("ChatGPT study hacks")}
+                            className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 border border-neutral-700 hover:border-purple-500/70 hover:bg-neutral-800 transition-colors"
+                          >
+                            Try &apos;ChatGPT study hacks&apos; (3 breakouts)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleExampleSearch("Notion for students")}
+                            className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 border border-neutral-700 hover:border-purple-500/70 hover:bg-neutral-800 transition-colors"
+                          >
+                            Try &apos;Notion for students&apos; (2 breakouts)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSaveSearchForAlerts}
+                            className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 border border-neutral-700 hover:border-purple-500/70 hover:bg-neutral-800 transition-colors"
+                          >
+                            Alert me when this changes
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </div>
 
-                  {/* Explanation - Framed as market intelligence, not absence */}
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-                        Market Insight
-                      </h4>
-                      <p className="text-sm text-neutral-300 leading-relaxed">
-                        {nicheAnalysis.explanation}
-                      </p>
-                    </div>
+                      {/* Footer note */}
+                      <div className="pt-4 border-t border-neutral-800">
+                        <p className="text-xs text-neutral-400 leading-relaxed">
+                          Quiet isn’t bad. It means you’re not late. When something breaks out here, you’ll see it early.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Non-QUIET fallback: stats + insight */}
+                      {/* Stats Grid */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
+                          <div className="text-xs text-neutral-400 mb-1">Sample size</div>
+                          <div className="text-sm font-semibold text-white">
+                            {nicheAnalysis.scannedVideos} videos
+                          </div>
+                          <p className="mt-1 text-[0.65rem] text-neutral-500 leading-snug">
+                            Scanned the top {nicheAnalysis.scannedVideos} most relevant recent videos under our strict breakout criteria.
+                          </p>
+                        </div>
+                        <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
+                          <div className="text-xs text-neutral-400 mb-1">Avg channel size</div>
+                          <div className="text-sm font-semibold text-white">
+                            {formatNumber(nicheAnalysis.averageChannelSize)}
+                          </div>
+                          <p className="mt-1 text-[0.65rem] text-neutral-500 leading-snug">
+                            Additional context includes broader market averages for comparison, even when you filter to smaller channels.
+                          </p>
+                        </div>
+                        <div className="bg-neutral-950/50 rounded-lg p-3 border border-neutral-800">
+                          <div className="text-xs text-neutral-400 mb-1">Difficulty</div>
+                          <div className={`text-xs font-semibold px-2 py-0.5 rounded-full border inline-block ${getDifficultyColor(nicheAnalysis.difficultyLevel)}`}>
+                            {nicheAnalysis.difficultyLevel}
+                          </div>
+                        </div>
+                      </div>
 
-                    {/* What this means */}
-                    <div className="space-y-2 pt-3 border-t border-neutral-800">
-                      <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-                        What this means
-                      </h4>
-                      <p className="text-xs text-neutral-400 leading-relaxed">
-                        We scanned the top {nicheAnalysis.scannedVideos} most relevant recent videos that match this query. Our criteria: published within 30 days, primarily channels under 50k subscribers, and a 3×+ breakout multiplier.
-                      </p>
-                    </div>
+                      {/* Explanation - Framed as market intelligence, not absence */}
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                            Market Insight
+                          </h4>
+                          <p className="text-sm text-neutral-300 leading-relaxed">
+                            {nicheAnalysis.explanation}
+                          </p>
+                        </div>
 
-                    {/* Why this is useful */}
-                    <div className="space-y-2 pt-3 border-t border-neutral-800">
-                      <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-                        Why this is useful
-                      </h4>
-                      <p className="text-xs text-neutral-400 leading-relaxed">
-                        We intentionally analyze a small, high-signal sample to avoid noise from large legacy channels. This is diagnostic market intelligence, not a &quot;search everything&quot; engine.
-                      </p>
-                    </div>
+                        {/* What this means */}
+                        <div className="space-y-2 pt-3 border-t border-neutral-800">
+                          <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                            What this means
+                          </h4>
+                          <p className="text-xs text-neutral-400 leading-relaxed">
+                            We scanned the top {nicheAnalysis.scannedVideos} most relevant recent videos that match this query. Our criteria: published within 30 days, primarily channels under 50k subscribers, and a 3×+ breakout multiplier.
+                          </p>
+                        </div>
 
-                    {/* Why this is useful */}
-                    <div className="space-y-2 pt-3 border-t border-neutral-800">
-                      <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-                        Why this is useful
-                      </h4>
-                      <p className="text-xs text-neutral-400 leading-relaxed">
-                        This tells us the niche is currently stable or saturated. No videos are significantly outperforming channel size expectations right now. That scarcity is valuable intelligence.
-                      </p>
-                    </div>
-                  </div>
+                        {/* Why this is useful */}
+                        <div className="space-y-2 pt-3 border-t border-neutral-800">
+                          <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                            Why this is useful
+                          </h4>
+                          <p className="text-xs text-neutral-400 leading-relaxed">
+                            We intentionally analyze a small, high-signal sample to avoid noise from large legacy channels. This is diagnostic market intelligence, not a &quot;search everything&quot; engine.
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {/* Suggested Searches */}
                   {nicheAnalysis.suggestedSearches.length > 0 && (
@@ -1227,8 +1499,8 @@ export function HomeClient() {
                     </div>
                   )}
 
-                  {/* Rising Signals info in Market Heat Check (if available) */}
-                  {hasSearched && risingSignals.length > 0 && (
+                  {/* Rising Signals info in Market Heat Check (if available, only after user has seen breakouts) */}
+                  {hasSearched && hasSeenBreakout && risingSignals.length > 0 && (
                     <div className="pt-3 border-t border-neutral-800">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-semibold text-neutral-300">
