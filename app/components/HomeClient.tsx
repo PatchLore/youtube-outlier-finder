@@ -558,9 +558,12 @@ export function HomeClient() {
     setValidationError(null);
     setHasSearched(true); // Mark that a search has been executed
     setHasSubmittedSearch(true);
+    // Clear previous UI state before fetching new results
+    setResults([]);
     setNearMisses([]); // Clear nearMisses on new search
     setNicheAnalysis(null); // Clear niche analysis on new search
     setRisingSignals([]); // Clear rising signals on new search
+    setAdjacentOpps([]); // Clear adjacent opportunities on new search
     setShowRisingSignals(false); // Reset rising signals toggle
     setShowNearMisses(false); // Reset opt-in state
     setDismissedSoftLanding(false); // Reset dismissal state
@@ -990,7 +993,7 @@ export function HomeClient() {
                 🔥 Try a search with live breakouts
               </h2>
               <p className="mt-1 text-xs text-neutral-400 leading-relaxed">
-                These searches currently have videos outperforming their channel size. Click one to see how the tool works.
+                These are historically active niches. Results vary, but they’re good starting points to see how breakouts emerge.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1017,7 +1020,7 @@ export function HomeClient() {
               </button>
             </div>
             <p className="text-xs text-neutral-500">
-              Tip: Breakouts rarely come from formal or list-style searches. Start broad, then narrow.
+              Tip: These examples aren’t guaranteed to break out now. Start broad, then narrow.
             </p>
           </div>
         )}
