@@ -386,6 +386,7 @@ export function HomeClient() {
   const [hasSearched, setHasSearched] = useState(false);
   // Lightweight UX flag: has the user ever seen at least one 3×+ breakout?
   const [hasSeenBreakout, setHasSeenBreakout] = useState(false);
+  const [hasSubmittedSearch, setHasSubmittedSearch] = useState(false);
   const [queryHistoryCount, setQueryHistoryCount] = useState(0);
   const [adjacentOpps, setAdjacentOpps] = useState<AdjacentOpportunity[]>([]);
 
@@ -610,6 +611,7 @@ export function HomeClient() {
 
   function handleExampleSearch(exampleQuery: string) {
     setQuery(exampleQuery);
+    setHasSubmittedSearch(true);
     // Trigger search directly with the provided term
     performSearch(exampleQuery);
   }
@@ -650,6 +652,7 @@ export function HomeClient() {
       return;
     }
 
+     setHasSubmittedSearch(true);
     // Use canonical search function
     await performSearch(query);
   }
@@ -979,7 +982,7 @@ export function HomeClient() {
       <div id="search" className="mx-auto max-w-7xl px-6 pb-16">
 
         {/* Onboarding state: curated breakout searches for first-time users */}
-        {!hasSeenBreakout && (
+        {!hasSubmittedSearch && !hasSeenBreakout && (
           <div className="max-w-2xl mx-auto mb-8 space-y-4">
             <div>
               <h2 className="text-sm font-semibold text-neutral-100">
@@ -1142,8 +1145,8 @@ export function HomeClient() {
           </div>
         )}
 
-        {/* Soft Landing: Near-miss results (only after user has seen a breakout) */}
-        {hasSearched && hasSeenBreakout && !loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
+        {/* Soft Landing: Near-miss results */}
+        {hasSearched && !loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
           <div className="max-w-3xl mx-auto mb-6 p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg">
             <div className="space-y-4">
               <div className="text-center space-y-2">
@@ -1234,8 +1237,8 @@ export function HomeClient() {
           </div>
         )}
 
-        {/* Search Refinement Hint - Show when strict results === 0 and query needs refinement (post-breakout only) */}
-        {hasSearched && hasSeenBreakout && !loading && !error && results.length === 0 && query.trim() !== "" && needsRefinement(query) && (
+        {/* Search Refinement Hint - Show when strict results === 0 and query needs refinement */}
+        {hasSearched && !loading && !error && results.length === 0 && query.trim() !== "" && needsRefinement(query) && (
           <div className="max-w-2xl mx-auto">
             <div className="p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
               <div className="space-y-3">
@@ -1259,7 +1262,7 @@ export function HomeClient() {
           </div>
         )}
 
-        {hasSearched && hasSeenBreakout && !loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
+        {hasSearched && !loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
           <div className="max-w-2xl mx-auto space-y-4">
             {/* Market Heat Check Card - Shows niche intelligence when no breakouts found */}
             {nicheAnalysis && (
@@ -1499,8 +1502,8 @@ export function HomeClient() {
                     </div>
                   )}
 
-                  {/* Rising Signals info in Market Heat Check (if available, only after user has seen breakouts) */}
-                  {hasSearched && hasSeenBreakout && risingSignals.length > 0 && (
+                  {/* Rising Signals info in Market Heat Check (if available) */}
+                  {hasSearched && risingSignals.length > 0 && (
                     <div className="pt-3 border-t border-neutral-800">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-semibold text-neutral-300">
