@@ -547,7 +547,6 @@ export function HomeClient() {
 
   // Canonical search function - used by both manual submit and suggested searches
   async function performSearch(searchTerm: string) {
-    console.log("[search] triggered with query:", query);
     const trimmed = searchTerm.trim();
     if (!trimmed) {
       return; // Silently return if empty (no error for programmatic calls)
@@ -650,7 +649,6 @@ export function HomeClient() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
-    setHasSubmittedSearch(true);
     const trimmed = query.trim();
     if (!trimmed) {
       setValidationError("Please enter a search query.");
@@ -755,6 +753,29 @@ export function HomeClient() {
                 type="button"
                 onClick={() => setShowCheckoutSuccess(false)}
                 className="text-green-400/60 hover:text-green-400 transition-colors"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+        {showCheckoutSuccess && !userIsPro && (
+          <div className="max-w-2xl mx-auto mb-6 p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg animate-in fade-in slide-in-from-top-4">
+            <div className="flex items-start gap-3">
+              <span className="text-neutral-300 text-xl">⏳</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-neutral-200 mb-1">
+                  Processing your upgrade
+                </p>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Your Pro access is being activated. This can take a moment to sync.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCheckoutSuccess(false)}
+                className="text-neutral-400 hover:text-neutral-200 transition-colors"
                 aria-label="Dismiss"
               >
                 ×
@@ -1002,21 +1023,30 @@ export function HomeClient() {
                 onClick={() => handleExampleSearch("Notion templates")}
                 className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 border border-neutral-700 hover:border-purple-500/70 hover:bg-neutral-800 transition-colors"
               >
-                Notion templates (4 breakouts)
+                <span className="flex flex-col items-start leading-tight">
+                  <span>Notion templates</span>
+                  <span className="text-[0.7rem] text-neutral-400">(historically 4 breakouts)</span>
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => handleExampleSearch("Faceless YouTube shorts")}
                 className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 border border-neutral-700 hover:border-purple-500/70 hover:bg-neutral-800 transition-colors"
               >
-                Faceless YouTube shorts (7 breakouts)
+                <span className="flex flex-col items-start leading-tight">
+                  <span>Faceless YouTube shorts</span>
+                  <span className="text-[0.7rem] text-neutral-400">(historically 7 breakouts)</span>
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => handleExampleSearch("ChatGPT workflows")}
                 className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 border border-neutral-700 hover:border-purple-500/70 hover:bg-neutral-800 transition-colors"
               >
-                ChatGPT workflows (3 breakouts)
+                <span className="flex flex-col items-start leading-tight">
+                  <span>ChatGPT workflows</span>
+                  <span className="text-[0.7rem] text-neutral-400">(historically 3 breakouts)</span>
+                </span>
               </button>
             </div>
             <p className="text-xs text-neutral-500">
@@ -1299,9 +1329,12 @@ export function HomeClient() {
                         <p className="text-sm text-neutral-300 leading-relaxed">
                           &apos;{query || "This search"}&apos; is currently showing normal performance.
                         </p>
+                        <p className="text-[0.7rem] text-neutral-500">
+                          Strict breakout scan (recent, small channels, 3×+).
+                        </p>
                         <div className="space-y-1">
                           <p className="text-xs text-neutral-400 leading-relaxed">
-                            We scanned 25 recent videos from channels under 50k subscribers.
+                            We scanned {nicheAnalysis.scannedVideos} recent videos from channels under 50k subscribers.
                           </p>
                           <p className="text-xs text-neutral-400 leading-relaxed">
                             None showed abnormal performance (3×+ views relative to channel size).
@@ -1479,10 +1512,10 @@ export function HomeClient() {
                           </p>
                         </div>
 
-                        {/* Why this is useful */}
+                        {/* Interpretation */}
                         <div className="space-y-2 pt-3 border-t border-neutral-800">
                           <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-                            Why this is useful
+                            Interpretation
                           </h4>
                           <p className="text-xs text-neutral-400 leading-relaxed">
                             We intentionally analyze a small, high-signal sample to avoid noise from large legacy channels. This is diagnostic market intelligence, not a &quot;search everything&quot; engine.
