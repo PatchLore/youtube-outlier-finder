@@ -47,7 +47,6 @@ export async function GET(req: Request) {
       );
     }
 
-    // Parse and validate query
     const url = new URL(req.url);
     const query = url.searchParams.get("q");
     const trimmedQuery = query ? query.trim() : "";
@@ -67,26 +66,53 @@ export async function GET(req: Request) {
 
     // Rate limiting: apply after validation so invalid requests don't count.
     // Use per-user when authenticated, otherwise per-IP. Upgrade to KV/DB for multi-instance.
+    // Only primary searches should count toward the limit (avoid background fetches).
+    let rateLimitHeaders: Record<string, string> | null = null;
     const { userId } = await auth();
     const scope = url.searchParams.get("rateLimitScope") || "primary";
+    const shouldRateLimit = scope === "primary";
     const baseKey = userId ? `user:${userId}` : `ip:${getClientIp(req)}`;
     const rateLimitKey = `${baseKey}:${scope}`;
     const now = Date.now();
-    const existing = rateLimitStore.get(rateLimitKey);
 
-    if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
-      rateLimitStore.set(rateLimitKey, { count: 1, windowStart: now });
-    } else if (existing.count >= RATE_LIMIT_MAX) {
-      const remainingSeconds = Math.max(
-        0,
-        Math.ceil((RATE_LIMIT_WINDOW_MS - (now - existing.windowStart)) / 1000)
+    if (shouldRateLimit) {
+      const existing = rateLimitStore.get(rateLimitKey);
+      let currentCount = 1;
+      let windowStart = now;
+
+      if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
+        rateLimitStore.set(rateLimitKey, { count: 1, windowStart: now });
+      } else if (existing.count >= RATE_LIMIT_MAX) {
+        const remainingSeconds = Math.max(
+          0,
+          Math.ceil((RATE_LIMIT_WINDOW_MS - (now - existing.windowStart)) / 1000)
+        );
+        rateLimitHeaders = {
+          "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+          "X-RateLimit-Remaining": "0",
+          "Retry-After": String(remainingSeconds),
+        };
+        console.log(
+          `[RateLimit] ${baseKey} | Count: ${existing.count}/${RATE_LIMIT_MAX} | Trigger: ${scope} | BLOCKED`
+        );
+        return NextResponse.json(
+          { error: "Too many requests. Please wait a minute and try again." },
+          { status: 429, headers: rateLimitHeaders }
+        );
+      } else {
+        existing.count += 1;
+        currentCount = existing.count;
+        windowStart = existing.windowStart;
+      }
+
+      const remaining = Math.max(0, RATE_LIMIT_MAX - currentCount);
+      rateLimitHeaders = {
+        "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+        "X-RateLimit-Remaining": String(remaining),
+      };
+      console.log(
+        `[RateLimit] ${baseKey} | Count: ${currentCount}/${RATE_LIMIT_MAX} | Trigger: ${scope}`
       );
-      return NextResponse.json(
-        { error: "Too many requests. Please wait a minute and try again." },
-        { status: 429, headers: { "Retry-After": String(remainingSeconds) } }
-      );
-    } else {
-      existing.count += 1;
     }
 
     // Build YouTube Search API request
@@ -617,7 +643,13 @@ export async function GET(req: Request) {
       response.nicheAnalysis = nicheAnalysis;
     }
 
-    return NextResponse.json(response);
+    const jsonResponse = NextResponse.json(response);
+    if (rateLimitHeaders) {
+      Object.entries(rateLimitHeaders).forEach(([key, value]) => {
+        jsonResponse.headers.set(key, value);
+      });
+    }
+    return jsonResponse;
   } catch (err: any) {
     return NextResponse.json(
       {

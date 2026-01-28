@@ -411,10 +411,22 @@ export function HomeClient() {
       const url = new URL(window.location.href);
       url.searchParams.delete("session_id");
       router.replace(url.pathname + url.search, { scroll: false });
-      // Hide success message after 10 seconds
-      setTimeout(() => setShowCheckoutSuccess(false), 10000);
     }
   }, [searchParams, router]);
+
+  // Auto-hide success banner after Pro is confirmed
+  useEffect(() => {
+    if (!showCheckoutSuccess || !userIsPro) return;
+    const timeout = setTimeout(() => setShowCheckoutSuccess(false), 10000);
+    return () => clearTimeout(timeout);
+  }, [showCheckoutSuccess, userIsPro]);
+
+  // While awaiting webhook sync, refresh user state periodically
+  useEffect(() => {
+    if (!showCheckoutSuccess || userIsPro) return;
+    const interval = setInterval(() => router.refresh(), 3000);
+    return () => clearInterval(interval);
+  }, [showCheckoutSuccess, userIsPro, router]);
 
   // Auto-dismiss rate limit notice after a short delay
   useEffect(() => {
@@ -800,25 +812,14 @@ export function HomeClient() {
           </div>
         )}
         {showCheckoutSuccess && !userIsPro && (
-          <div className="max-w-2xl mx-auto mb-6 p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg animate-in fade-in slide-in-from-top-4">
+          <div className="max-w-2xl mx-auto mb-6 p-4 bg-emerald-500/10 border border-emerald-400/30 rounded-lg animate-in fade-in slide-in-from-top-4">
             <div className="flex items-start gap-3">
-              <span className="text-neutral-300 text-xl">⏳</span>
+              <span className="mt-0.5 h-5 w-5 rounded-full border-2 border-emerald-300/40 border-t-emerald-300 animate-spin" aria-hidden="true" />
               <div className="flex-1">
-                <p className="text-sm font-semibold text-neutral-200 mb-1">
-                  Processing your upgrade
-                </p>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Your Pro access is being activated. This can take a moment to sync.
+                <p className="text-sm font-semibold text-emerald-200 mb-1">
+                  Payment received! Syncing your upgrade... (This takes about 5-10 seconds)
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowCheckoutSuccess(false)}
-                className="text-neutral-400 hover:text-neutral-200 transition-colors"
-                aria-label="Dismiss"
-              >
-                ×
-              </button>
             </div>
           </div>
         )}
