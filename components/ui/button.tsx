@@ -3,6 +3,12 @@ import type { ButtonHTMLAttributes, PropsWithChildren } from "react";
 type ButtonProps = PropsWithChildren<
   ButtonHTMLAttributes<HTMLButtonElement> & {
     redirectUrl?: string;
+    signInFallbackRedirectUrl?: string;
+    signInForceRedirectUrl?: string;
+    signUpFallbackRedirectUrl?: string;
+    signUpForceRedirectUrl?: string;
+    signInUrl?: string;
+    signUpUrl?: string;
   }
 >;
 
@@ -10,6 +16,12 @@ export function Button({
   className = "",
   children,
   redirectUrl: _redirectUrl,
+  signInFallbackRedirectUrl: _signInFallbackRedirectUrl,
+  signInForceRedirectUrl: _signInForceRedirectUrl,
+  signUpFallbackRedirectUrl: _signUpFallbackRedirectUrl,
+  signUpForceRedirectUrl: _signUpForceRedirectUrl,
+  signInUrl: _signInUrl,
+  signUpUrl: _signUpUrl,
   ...props
 }: ButtonProps) {
   return (
