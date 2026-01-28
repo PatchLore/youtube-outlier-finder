@@ -8,5 +8,12 @@ import { ReactNode } from "react";
  * This prevents Clerk from executing during build-time prerender
  */
 export function ClientProviders({ children }: { children: ReactNode }) {
-  return <ClerkProvider>{children}</ClerkProvider>;
+  return (
+    <ClerkProvider
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      clerkJSUrl="https://js.clerk.com/v5/clerk.browser.js"
+    >
+      {children}
+    </ClerkProvider>
+  );
 }
