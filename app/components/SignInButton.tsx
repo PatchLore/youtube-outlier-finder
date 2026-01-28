@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 
 export function SignInButton() {
   return (
-    <ClerkSignInButton mode="redirect" redirectUrl="/">
+    <ClerkSignInButton mode="redirect">
       <Button>Sign In</Button>
     </ClerkSignInButton>
   );
