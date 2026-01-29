@@ -404,6 +404,7 @@ export function HomeClient() {
   const [queryHistoryCount, setQueryHistoryCount] = useState(0);
   const [adjacentOpps, setAdjacentOpps] = useState<AdjacentOpportunity[]>([]);
   const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
+  const [showQuotaFallbackNotice, setShowQuotaFallbackNotice] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [hasSeenDemo, setHasSeenDemo] = useState(false);
   const [showDemoExplanation, setShowDemoExplanation] = useState(false);
@@ -646,6 +647,7 @@ export function HomeClient() {
     setError(null);
     setValidationError(null);
     setRateLimitMessage(null);
+    setShowQuotaFallbackNotice(false);
     setHasSearched(true); // Mark that a search has been executed
     setHasSubmittedSearch(true);
     // Clear previous UI state before fetching new results
@@ -687,6 +689,13 @@ export function HomeClient() {
           setRecommendedAlternatives(previousState.recommendedAlternatives);
           return;
         }
+        // Quota exceeded or server error: auto-fallback to demo so user still sees the algorithm
+        if (res.status === 403 || res.status === 502) {
+          console.warn("Quota hit, pivoting to demo mode");
+          setShowQuotaFallbackNotice(true);
+          await runDemoSearch();
+          return;
+        }
         const data = await res.json().catch(() => null);
         const message = data?.error || "Unable to search for outliers. Please try again later.";
         throw new Error(message);
@@ -726,7 +735,15 @@ export function HomeClient() {
       // Track how many distinct searches have returned results/analysis
       setQueryHistoryCount((prev) => prev + 1);
     } catch (err: any) {
-      setError(err.message || "Unable to search for outliers. Please try again.");
+      const message = err?.message || "Unable to search for outliers. Please try again.";
+      // Quota Exceeded in message (e.g. from upstream): auto-fallback to demo
+      if (/quota exceeded/i.test(message)) {
+        console.warn("Quota hit, pivoting to demo mode");
+        setShowQuotaFallbackNotice(true);
+        await runDemoSearch();
+        return;
+      }
+      setError(message);
       setResults([]);
     } finally {
       setLoading(false);
@@ -1351,11 +1368,10 @@ export function HomeClient() {
                   count: s.count,
                 }))
               : [
-                  { label: "faceless history facts", count: 0 },
-                  { label: "AI tools for students", count: 0 },
-                  { label: "study with me pomodoro", count: 0 },
-                  { label: "gaming challenge shorts", count: 0 },
-                  { label: "productivity apps review", count: 0 },
+                  { label: "Deep Research", count: 3 },
+                  { label: "Faceless Travel", count: 2 },
+                  { label: "AI Agents", count: 5 },
+                  { label: "SaaS Micro-scripts", count: 1 },
                 ]
             ).map((example) => (
               <button
@@ -1458,6 +1474,22 @@ export function HomeClient() {
             {error && (
               <div className="max-w-2xl mx-auto mb-6 p-4 bg-red-900/20 border border-red-500/30 rounded-lg text-red-200 text-sm">
                 {error}
+              </div>
+            )}
+
+            {showQuotaFallbackNotice && (
+              <div className="max-w-2xl mx-auto mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start justify-between gap-3">
+                <p className="text-sm text-amber-200/90 flex-1">
+                  <span className="font-semibold text-amber-200">Notice:</span> Live search is at capacity—showing a simulated breakout for &quot;AI Agents&quot; to demonstrate the algorithm.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowQuotaFallbackNotice(false)}
+                  className="shrink-0 text-amber-300/80 hover:text-amber-200 transition-colors p-1"
+                  aria-label="Dismiss notice"
+                >
+                  ×
+                </button>
               </div>
             )}
 
