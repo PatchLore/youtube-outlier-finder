@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { kv } from "@vercel/kv";
 import { clerkClient } from "@clerk/nextjs/server";
 
 // CRITICAL: Must use Node.js runtime for Stripe webhook signature verification
@@ -10,8 +11,84 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Stripe can retry webhook deliveries; we must ensure each event is applied once.
-// TODO: Persist this in a durable store (DB/KV) to survive server restarts.
+// Prefer persistent storage (KV/DB) so deploys/restarts don't reset state.
 const processedStripeEventIds = new Set<string>();
+
+const PROCESSED_EVENT_TTL_SECONDS = 60 * 60 * 24 * 7;
+
+async function isDuplicateEvent(eventId: string): Promise<boolean> {
+  try {
+    const existing = await kv.get(`stripe:event:${eventId}`);
+    return !!existing;
+  } catch {
+    // Fallback for local/dev or missing KV configuration
+    return processedStripeEventIds.has(eventId);
+  }
+}
+
+async function recordEventProcessed(eventId: string): Promise<void> {
+  try {
+    await kv.set(`stripe:event:${eventId}`, "1", { ex: PROCESSED_EVENT_TTL_SECONDS });
+  } catch {
+    // Fallback for local/dev or missing KV configuration
+    processedStripeEventIds.add(eventId);
+  }
+}
+
+async function findClerkUserIdByStripeCustomerId(stripeCustomerId: string): Promise<string | null> {
+  const client = await clerkClient();
+  let clerkUserId: string | null = null;
+  let pageOffset = 0;
+  const pageSize = 100;
+
+  while (clerkUserId === null) {
+    const userList = await client.users.getUserList({
+      limit: pageSize,
+      offset: pageOffset,
+    });
+
+    for (const user of userList.data) {
+      if (user.publicMetadata?.stripeCustomerId === stripeCustomerId) {
+        clerkUserId = user.id;
+        break;
+      }
+    }
+
+    if (userList.data.length < pageSize || clerkUserId !== null) {
+      break;
+    }
+
+    pageOffset += pageSize;
+  }
+
+  return clerkUserId;
+}
+
+async function updateClerkPlan(
+  clerkUserId: string,
+  plan: "pro" | null,
+  stripeCustomerId?: string
+): Promise<void> {
+  const client = await clerkClient();
+  const currentUser = await client.users.getUser(clerkUserId);
+
+  const updatedMetadata: Record<string, unknown> = {
+    ...currentUser.publicMetadata,
+  };
+
+  if (plan === "pro") {
+    updatedMetadata.plan = "pro";
+    if (stripeCustomerId) {
+      updatedMetadata.stripeCustomerId = stripeCustomerId;
+    }
+  } else {
+    delete updatedMetadata.plan;
+  }
+
+  await client.users.updateUser(clerkUserId, {
+    publicMetadata: updatedMetadata,
+  });
+}
 
 /**
  * Stripe webhook handler
@@ -129,7 +206,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Idempotency: Stripe retries can deliver the same event multiple times.
-  if (processedStripeEventIds.has(event.id)) {
+  if (await isDuplicateEvent(event.id)) {
     console.log(`[Webhook] Duplicate event received: ${event.type} (id: ${event.id})`);
     return NextResponse.json({ received: true, duplicate: true });
   }
@@ -139,14 +216,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Handle checkout completion (existing logic)
     const response = await handleCheckoutCompleted(event, stripe);
     if (response.status === 200) {
-      processedStripeEventIds.add(event.id);
+      await recordEventProcessed(event.id);
+    }
+    return response;
+  } else if (event.type === "customer.subscription.updated") {
+    const response = await handleSubscriptionUpdated(event);
+    if (response.status === 200) {
+      await recordEventProcessed(event.id);
+    }
+    return response;
+  } else if (event.type === "invoice.payment_failed") {
+    const response = await handleInvoicePaymentFailed(event);
+    if (response.status === 200) {
+      await recordEventProcessed(event.id);
     }
     return response;
   } else if (event.type === "customer.subscription.deleted") {
     // Handle subscription cancellation
     const response = await handleSubscriptionDeleted(event);
     if (response.status === 200) {
-      processedStripeEventIds.add(event.id);
+      await recordEventProcessed(event.id);
     }
     return response;
   } else {
@@ -154,7 +243,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log(`[Webhook] Received unhandled event type: ${event.type} (id: ${event.id})`);
     // Return 200 to acknowledge receipt, even if we don't process it
     // This prevents Stripe from retrying unhandled events
-    processedStripeEventIds.add(event.id);
+    await recordEventProcessed(event.id);
     return NextResponse.json({ 
       received: true,
       event_type: event.type,
@@ -173,6 +262,16 @@ async function handleCheckoutCompleted(event: Stripe.Event, stripe: Stripe) {
       { error: "Missing session data" },
       { status: 400 }
     );
+  }
+
+  // Verify payment status before granting access
+  if (session.payment_status !== "paid" || session.status !== "complete") {
+    console.warn("[Webhook] Checkout not paid/complete; skipping Pro grant", {
+      session_id: session.id,
+      payment_status: session.payment_status,
+      status: session.status,
+    });
+    return NextResponse.json({ received: true, event_type: event.type, skipped: true });
   }
 
   // Extract clerkUserId from client_reference_id
@@ -217,27 +316,13 @@ async function handleCheckoutCompleted(event: Stripe.Event, stripe: Stripe) {
   // This operation is idempotent - safe to call multiple times
   try {
     const client = await clerkClient();
-    
-    // Get current user to check existing metadata
     const currentUser = await client.users.getUser(clerkUserId);
     const currentPlan = currentUser.publicMetadata?.plan;
     const currentStripeCustomerId = currentUser.publicMetadata?.stripeCustomerId;
-    
-    // Prepare updated metadata
-    const updatedMetadata: Record<string, unknown> = {
-      ...currentUser.publicMetadata,
-      plan: "pro",
-      stripeCustomerId: stripeCustomerId,
-    };
-    
-    // Only update if metadata has changed (idempotent check)
     const needsUpdate = currentPlan !== "pro" || currentStripeCustomerId !== stripeCustomerId;
-    
+
     if (needsUpdate) {
-      await client.users.updateUser(clerkUserId, {
-        publicMetadata: updatedMetadata,
-      });
-      
+      await updateClerkPlan(clerkUserId, "pro", stripeCustomerId);
       if (currentPlan !== "pro") {
         console.log(`[Webhook] ✅ Successfully granted Pro access to user: ${clerkUserId} (session: ${session.id}, customer: ${stripeCustomerId})`);
       } else {
@@ -296,38 +381,8 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
     );
   }
 
-  // Find the Clerk user with matching stripeCustomerId in publicMetadata
   try {
-    const client = await clerkClient();
-    
-    // List users and find the one with matching stripeCustomerId
-    // Note: This requires iterating through users, which may be inefficient for large user bases
-    // In production, consider storing a reverse mapping or using Clerk's user search if available
-    let clerkUserId: string | null = null;
-    let pageOffset = 0;
-    const pageSize = 100;
-    
-    while (clerkUserId === null) {
-      const userList = await client.users.getUserList({ 
-        limit: pageSize,
-        offset: pageOffset 
-      });
-      
-      // Check each user for matching stripeCustomerId
-      for (const user of userList.data) {
-        if (user.publicMetadata?.stripeCustomerId === stripeCustomerId) {
-          clerkUserId = user.id;
-          break;
-        }
-      }
-      
-      // If we've checked all users or found a match, break
-      if (userList.data.length < pageSize || clerkUserId !== null) {
-        break;
-      }
-      
-      pageOffset += pageSize;
-    }
+    const clerkUserId = await findClerkUserIdByStripeCustomerId(stripeCustomerId);
     
     if (!clerkUserId) {
       console.error(
@@ -346,23 +401,12 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
       });
     }
 
-    // Get current user to check existing metadata (idempotent check)
+    const client = await clerkClient();
     const currentUser = await client.users.getUser(clerkUserId);
     const currentPlan = currentUser.publicMetadata?.plan;
-    
-    // Only update if user currently has Pro access (idempotent check)
+
     if (currentPlan === "pro") {
-      // Remove plan from metadata (downgrade to free)
-      // Keep stripeCustomerId for reference
-      const updatedMetadata: Record<string, unknown> = {
-        ...currentUser.publicMetadata,
-      };
-      delete updatedMetadata.plan;
-      
-      await client.users.updateUser(clerkUserId, {
-        publicMetadata: updatedMetadata,
-      });
-      
+      await updateClerkPlan(clerkUserId, null);
       console.log(`[Webhook] ✅ Successfully downgraded user: ${clerkUserId} (subscription: ${subscription.id}, customer: ${stripeCustomerId})`);
     } else {
       console.log(`[Webhook] ✅ User already downgraded: ${clerkUserId} (subscription: ${subscription.id})`);
@@ -385,4 +429,69 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
     event_type: event.type,
     subscription_id: subscription.id
   });
+}
+
+async function handleSubscriptionUpdated(event: Stripe.Event) {
+  const subscription = event.data.object as Stripe.Subscription;
+  const stripeCustomerId = typeof subscription.customer === "string"
+    ? subscription.customer
+    : subscription.customer?.id;
+
+  if (!stripeCustomerId || typeof stripeCustomerId !== "string") {
+    return NextResponse.json({ error: "Missing customer ID in subscription" }, { status: 400 });
+  }
+
+  try {
+    const clerkUserId = await findClerkUserIdByStripeCustomerId(stripeCustomerId);
+    if (!clerkUserId) {
+      return NextResponse.json({ received: true, event_type: event.type, message: "User not found, but event acknowledged" });
+    }
+
+    if (subscription.status === "active" || subscription.status === "trialing") {
+      await updateClerkPlan(clerkUserId, "pro", stripeCustomerId);
+      console.log(`[Webhook] ✅ Subscription updated: Pro retained for ${clerkUserId} (${subscription.id})`);
+    } else {
+      await updateClerkPlan(clerkUserId, null);
+      console.log(`[Webhook] ✅ Subscription updated: Pro removed for ${clerkUserId} (${subscription.id})`);
+    }
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    console.error("[Webhook] Failed to update subscription status:", errorMessage, {
+      stripeCustomerId,
+      subscription_id: subscription.id,
+    });
+    return NextResponse.json({ error: "Failed to update subscription status" }, { status: 500 });
+  }
+
+  return NextResponse.json({ received: true, event_type: event.type, subscription_id: subscription.id });
+}
+
+async function handleInvoicePaymentFailed(event: Stripe.Event) {
+  const invoice = event.data.object as Stripe.Invoice;
+  const stripeCustomerId = typeof invoice.customer === "string"
+    ? invoice.customer
+    : invoice.customer?.id;
+
+  if (!stripeCustomerId || typeof stripeCustomerId !== "string") {
+    return NextResponse.json({ error: "Missing customer ID in invoice" }, { status: 400 });
+  }
+
+  try {
+    const clerkUserId = await findClerkUserIdByStripeCustomerId(stripeCustomerId);
+    if (!clerkUserId) {
+      return NextResponse.json({ received: true, event_type: event.type, message: "User not found, but event acknowledged" });
+    }
+
+    await updateClerkPlan(clerkUserId, null);
+    console.log(`[Webhook] ✅ Invoice payment failed: Pro removed for ${clerkUserId} (${invoice.id})`);
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    console.error("[Webhook] Failed to handle payment failure:", errorMessage, {
+      stripeCustomerId,
+      invoice_id: invoice.id,
+    });
+    return NextResponse.json({ error: "Failed to handle payment failure" }, { status: 500 });
+  }
+
+  return NextResponse.json({ received: true, event_type: event.type, invoice_id: invoice.id });
 }

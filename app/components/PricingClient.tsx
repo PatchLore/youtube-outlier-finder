@@ -1,9 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
+import { getUserPlan, isPro, type UserPlan } from "@/lib/auth";
 
 export function PricingClient() {
   const router = useRouter();
+  const { user, isLoaded } = useUser();
+  const planValue = isLoaded ? (user?.publicMetadata?.plan as string | undefined) : undefined;
+  const plan: UserPlan = getUserPlan(planValue);
+  const userIsPro = isLoaded && isPro(plan);
+  const isFreeCurrent = !userIsPro;
 
   async function handleCheckout() {
     console.log("Pricing page: handleCheckout called");
@@ -72,11 +79,16 @@ export function PricingClient() {
           <div 
             className="relative rounded-3xl p-8 flex flex-col"
             style={{
-              background: "rgba(255, 255, 255, 0.03)",
+              background: isFreeCurrent ? "rgba(16, 185, 129, 0.08)" : "rgba(255, 255, 255, 0.03)",
               backdropFilter: "blur(20px)",
-              border: "1px solid rgba(255, 255, 255, 0.1)"
+              border: isFreeCurrent ? "1px solid rgba(52, 211, 153, 0.5)" : "1px solid rgba(255, 255, 255, 0.1)"
             }}
           >
+            {isFreeCurrent && (
+              <div className="absolute top-4 right-4 px-2 py-1 rounded-full text-[0.7rem] font-semibold text-emerald-200 border border-emerald-400/40 bg-emerald-500/10">
+                ✓ Current Plan
+              </div>
+            )}
             <div className="mb-6">
               <h2 className="text-2xl font-bold mb-2 text-white">FREE</h2>
               <h3 className="text-sm font-medium text-white/60 mb-3">Explore</h3>
@@ -104,10 +116,14 @@ export function PricingClient() {
             </ul>
             <button
               type="button"
-              className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all duration-300 backdrop-blur-md border border-white/20 hover:bg-white/10"
-              style={{ background: "rgba(255, 255, 255, 0.05)" }}
+              disabled={isFreeCurrent}
+              className={`w-full rounded-xl py-3 text-sm font-semibold transition-all duration-300 backdrop-blur-md border ${
+                isFreeCurrent
+                  ? "text-emerald-200 border-emerald-400/40 bg-emerald-500/10 cursor-not-allowed"
+                  : "text-white border-white/20 hover:bg-white/10"
+              }`}
             >
-              Try it free
+              {isFreeCurrent ? "Current Plan" : "Free Plan"}
             </button>
           </div>
 
@@ -115,19 +131,23 @@ export function PricingClient() {
           <div 
             className="relative rounded-3xl p-8 flex flex-col group"
             style={{
-              background: "rgba(255, 255, 255, 0.03)",
+              background: userIsPro ? "rgba(168, 85, 247, 0.12)" : "rgba(255, 255, 255, 0.03)",
               backdropFilter: "blur(20px)",
-              border: "1px solid rgba(168, 85, 247, 0.3)"
+              border: userIsPro ? "1px solid rgba(168, 85, 247, 0.6)" : "1px solid rgba(168, 85, 247, 0.3)"
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.6)";
-              e.currentTarget.style.boxShadow = "0 20px 60px rgba(168, 85, 247, 0.3)";
-              e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+              if (!userIsPro) {
+                e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.6)";
+                e.currentTarget.style.boxShadow = "0 20px 60px rgba(168, 85, 247, 0.3)";
+                e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.3)";
-              e.currentTarget.style.boxShadow = "none";
-              e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+              if (!userIsPro) {
+                e.currentTarget.style.borderColor = "rgba(168, 85, 247, 0.3)";
+                e.currentTarget.style.boxShadow = "none";
+                e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+              }
             }}
           >
             <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
@@ -138,9 +158,14 @@ export function PricingClient() {
                   boxShadow: "0 0 20px rgba(168, 85, 247, 0.5)"
                 }}
               >
-                Recommended
+                {userIsPro ? "Current Plan" : "Recommended"}
               </span>
             </div>
+            {userIsPro && (
+              <div className="absolute top-4 right-4 px-2 py-1 rounded-full text-[0.7rem] font-semibold text-purple-200 border border-purple-400/40 bg-purple-500/10">
+                ✓ Current Plan
+              </div>
+            )}
             <div className="mb-6 mt-2">
               <h2 className="text-2xl font-bold mb-2 text-white">PRO</h2>
               <div className="flex items-baseline gap-2 mb-3">
@@ -188,24 +213,38 @@ export function PricingClient() {
             <button
               type="button"
               onClick={(e) => {
+                if (userIsPro) return;
                 console.log("=== PRICING PAGE BUTTON CLICKED ===");
                 e.preventDefault();
                 e.stopPropagation();
                 handleCheckout();
               }}
-              className="w-full rounded-xl py-4 text-base font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
-              style={{
-                background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
-                boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
-              }}
+              disabled={userIsPro}
+              className={`w-full rounded-xl py-4 text-base font-semibold transition-all duration-300 ${
+                userIsPro
+                  ? "text-purple-200 border border-purple-400/40 bg-purple-500/10 cursor-not-allowed"
+                  : "text-white hover:-translate-y-0.5"
+              }`}
+              style={
+                userIsPro
+                  ? undefined
+                  : {
+                      background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                      boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)",
+                    }
+              }
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
+                if (!userIsPro) {
+                  e.currentTarget.style.boxShadow = "0 0 40px rgba(168, 85, 247, 0.6)";
+                }
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
+                if (!userIsPro) {
+                  e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.4)";
+                }
               }}
             >
-              Upgrade to Pro
+              {userIsPro ? "Current Plan" : "Upgrade to Pro"}
             </button>
           </div>
         </div>
