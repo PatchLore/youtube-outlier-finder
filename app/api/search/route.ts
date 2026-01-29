@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { kv } from "@vercel/kv";
-import { auth } from "@clerk/nextjs/server";
 import { calculateViralityMultiplier, calculateViewsPerDay, calculateAverageLikeRatio, calculateNicheAverageMultiplier, classifyOutlier, isOutlierVideo, type OutlierOptions } from "@/lib/outlier";
 
 export const runtime = "nodejs";
@@ -76,16 +75,8 @@ export async function GET(req: Request) {
     // Use per-user when authenticated, otherwise per-IP. Upgrade to KV/DB for multi-instance.
     // Only primary searches should count toward the limit (avoid background fetches).
     let rateLimitHeaders: Record<string, string> | null = null;
-    let userId: string | null = null;
-    try {
-      const authResult = await auth();
-      userId = authResult.userId ?? null;
-      console.log(`[Search API] Path: ${req.url} | UserID: ${userId ?? "Guest"}`);
-    } catch {
-      // Allow public searches even if Clerk auth fails or is misconfigured
-      userId = null;
-      console.log(`[Search API] Path: ${req.url} | UserID: Guest`);
-    }
+    const userId: string | null = null;
+    console.log("API Search Hit:", { q: trimmedQuery, userId: userId ?? "Guest" });
     const scope = url.searchParams.get("rateLimitScope") || "primary";
     const shouldRateLimit = scope === "primary";
     const baseKey = userId ? `user:${userId}` : `ip:${getClientIp(req)}`;
