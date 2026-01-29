@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { AuthAlertModal } from "./modals/AuthAlertModal";
+import { useEffect, useState } from "react";
 
 type RecommendedAlternative = {
   query: string;
@@ -17,9 +16,15 @@ export function MarketIntelligenceReport({
   nicheName: string;
   onSelect: (query: string) => void;
 }) {
-  const [showMonitorModal, setShowMonitorModal] = useState(false);
+  const [showToast, setShowToast] = useState(false);
 
   if (!alternatives || alternatives.length === 0) return null;
+
+  useEffect(() => {
+    if (!showToast) return;
+    const timeout = setTimeout(() => setShowToast(false), 3000);
+    return () => clearTimeout(timeout);
+  }, [showToast]);
 
   return (
     <div className="mt-6 bg-gray-800/30 border border-gray-700 rounded-xl p-6">
@@ -40,18 +45,21 @@ export function MarketIntelligenceReport({
       <div className="mt-6">
         <button
           type="button"
-          onClick={() => setShowMonitorModal(true)}
+          onClick={() => {
+            console.log(`Alert clicked for: ${nicheName}`);
+            setShowToast(true);
+          }}
           className="w-full rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-3 text-sm font-semibold text-purple-100 transition hover:border-purple-500/60 hover:bg-purple-500/20"
         >
           🔔 Monitor this Niche
         </button>
       </div>
 
-      <AuthAlertModal
-        isOpen={showMonitorModal}
-        nicheName={nicheName}
-        onClose={() => setShowMonitorModal(false)}
-      />
+      {showToast && (
+        <div className="mt-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+          Coming Soon
+        </div>
+      )}
     </div>
   );
 }
