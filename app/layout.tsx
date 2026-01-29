@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://www.outlieryt.com"),
   title: "YouTube Outlier Finder – Find Breakout Video Ideas Early",
   description: "Discover YouTube videos that are outperforming expectations before they go mainstream.",
   openGraph: {
