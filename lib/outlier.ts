@@ -144,6 +144,91 @@ export function calculateNicheAverageMultiplier(
 }
 
 /**
+ * Composite outlier score for a video. Uses base multiplier, log10 confidence,
+ * time-decay (freshness), and channel-size penalty.
+ *
+ * @param views - View count (must be > 0; otherwise returns 0).
+ * @param subscribers - Channel subscriber count (hidden/missing treated as 0; denominator uses max(subscribers, 1)).
+ * @param publishedAt - Publish date (ISO string, Date, or ms). Optional; if missing, freshness = 1.0.
+ * @returns Score as a non-negative float; 0 for invalid/edge cases.
+ *
+ * @remarks
+ * **1. Base multiplier**
+ *   `base = views / max(subscribers, 1)`
+ *   Measures "views per subscriber" (virality). Small channels with many views get a high base.
+ *
+ * **2. Log10 confidence**
+ *   `confidence = log10(views)` when views >= 1, else 0.
+ *   Down-weights very low view counts (e.g. 10 views → 1, 1000 → 3) so scores reflect both
+ *   virality and scale. Prevents tiny channels with one viral hit from dominating.
+ *
+ * **3. Time-decay (freshness)**
+ *   Days since publish → multiplier:
+ *   - &lt; 7 days:  1.5x (recent content boosted)
+ *   - &lt; 30 days: 1.2x
+ *   - ≤ 90 days:  1.0x
+ *   - &gt; 90 days: 0.7x (older content discounted)
+ *   Missing/invalid publishedAt → 1.0x.
+ *
+ * **4. Channel penalty**
+ *   Large channels are penalized so small-channel breakouts rank higher:
+ *   - &gt; 1M subs: 0.5x
+ *   - &gt; 100k:    0.7x
+ *   - else:        1.0x
+ *
+ * **Final formula**
+ *   `score = base × confidence × freshness × channelPenalty`
+ */
+export function calculateOutlierScore(
+  views: number,
+  subscribers: number,
+  publishedAt?: string | Date | number | null
+): number {
+  const v = Number(views);
+  const subs =
+    subscribers === null || subscribers === undefined || !Number.isFinite(Number(subscribers))
+      ? 0
+      : Math.max(0, Number(subscribers));
+
+  if (!Number.isFinite(v) || v <= 0) {
+    return 0;
+  }
+
+  const base = v / Math.max(subs, 1);
+
+  let confidence: number;
+  if (v >= 1) {
+    confidence = Math.log10(v);
+    if (!Number.isFinite(confidence) || confidence < 0) confidence = 0;
+  } else {
+    confidence = 0;
+  }
+
+  let freshness = 1.0;
+  if (publishedAt != null && publishedAt !== "") {
+    const date =
+      typeof publishedAt === "number"
+        ? new Date(publishedAt)
+        : new Date(String(publishedAt));
+    if (Number.isFinite(date.getTime())) {
+      const now = Date.now();
+      const daysAgo = (now - date.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysAgo < 7) freshness = 1.5;
+      else if (daysAgo < 30) freshness = 1.2;
+      else if (daysAgo <= 90) freshness = 1.0;
+      else freshness = 0.7;
+    }
+  }
+
+  let channelPenalty = 1.0;
+  if (subs > 1_000_000) channelPenalty = 0.5;
+  else if (subs > 100_000) channelPenalty = 0.7;
+
+  const score = base * confidence * freshness * channelPenalty;
+  return Number.isFinite(score) && score >= 0 ? score : 0;
+}
+
+/**
  * Options for outlier detection with freshness/velocity support
  */
 export interface OutlierOptions {

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { kv } from "@vercel/kv";
 import { Redis } from "@upstash/redis";
-import { getPool } from "@/lib/db";
-import { searchFromDb } from "@/lib/db-search";
+import { getPool, query, type User } from "@/lib/db";
+import { searchFromDb, type DbSearchPlan } from "@/lib/db-search";
 
 /**
  * User-facing search: database only. No YouTube API calls.
@@ -32,6 +33,54 @@ function getClientIp(req: Request): string {
   }
   const realIp = req.headers.get("x-real-ip");
   return realIp?.trim() || "unknown";
+}
+
+/** True if the error is likely DB connection / unavailable (return 503). */
+function isDbUnavailableError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";
+  const lower = (msg + " " + code).toLowerCase();
+  return (
+    /DATABASE_URL|connection refused|ECONNREFUSED|ETIMEDOUT|connection terminated|connect ECONNREFUSED|connect ETIMEDOUT|timeout|does not exist|relation .* does not exist|no such table/i.test(lower) ||
+    code === "ECONNREFUSED" ||
+    code === "ETIMEDOUT" ||
+    code === "ENOTFOUND" ||
+    code === "57P01" || // admin shutdown
+    code === "57P03"    // cannot connect now
+  );
+}
+
+/** Log full error and stack server-side only; never send stack to client. */
+function logSearchError(context: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : undefined;
+  console.error("[Search API Error]", context, { message: msg, code });
+  if (stack) console.error("[Search API Error] stack:", stack);
+}
+
+const DB_OFFLINE_BODY = { error: "Database temporarily unavailable", type: "DB_OFFLINE" } as const;
+
+function dbOfflineResponse() {
+  return NextResponse.json(DB_OFFLINE_BODY, { status: 503 });
+}
+
+/** Resolve user plan from Clerk + users table; default 'free'. */
+async function getPlanForRequest(_req: Request): Promise<DbSearchPlan> {
+  try {
+    const { userId } = await auth();
+    if (!userId) return "free";
+    const pool = getPool();
+    if (!pool) return "free";
+    const { rows } = await query<Pick<User, "plan">>(
+      `SELECT plan FROM users WHERE clerk_user_id = $1 LIMIT 1`,
+      [userId]
+    );
+    const plan = rows[0]?.plan;
+    return plan === "pro" ? "pro" : "free";
+  } catch {
+    return "free";
+  }
 }
 
 export type NicheStatus = "SATURATED" | "QUIET" | "EMERGING" | "EVENT_DRIVEN" | "DECLINING";
@@ -69,7 +118,10 @@ export async function GET(req: Request) {
     }
 
     const mode = (url.searchParams.get("mode") || "momentum") as "momentum" | "proven";
-    const cacheKey = `search:${mode}:${trimmedQuery.toLowerCase()}`;
+    const plan = await getPlanForRequest(req);
+    const searchTerm = trimmedQuery.toLowerCase();
+    // Plan in key so Pro results are never served to Free users from cache
+    const cacheKey = `search:query:${searchTerm}:plan:${plan}:mode:${mode}`;
 
     try {
       const cached = await kv.get(cacheKey);
@@ -139,13 +191,23 @@ export async function GET(req: Request) {
 
     const pool = getPool();
     if (!pool) {
+      return dbOfflineResponse();
+    }
+
+    let response: Awaited<ReturnType<typeof searchFromDb>>;
+    try {
+      response = await searchFromDb(trimmedQuery, mode, { plan });
+    } catch (dbErr) {
+      logSearchError("searchFromDb threw", dbErr);
+      if (isDbUnavailableError(dbErr)) {
+        return NextResponse.json(DB_OFFLINE_BODY, { status: 503 });
+      }
       return NextResponse.json(
-        { error: "Search temporarily unavailable. Please try again later." },
-        { status: 503 }
+        { error: "An unexpected error occurred. Please try again later." },
+        { status: 500 }
       );
     }
 
-    const response = await searchFromDb(trimmedQuery, mode);
     const jsonResponse = NextResponse.json(response);
     setCorsHeaders(jsonResponse);
     jsonResponse.headers.set("X-Cache", "MISS");
@@ -161,7 +223,10 @@ export async function GET(req: Request) {
 
     return jsonResponse;
   } catch (err) {
-    console.error("[Search API Error]:", err);
+    logSearchError("outer catch", err);
+    if (isDbUnavailableError(err)) {
+      return NextResponse.json(DB_OFFLINE_BODY, { status: 503 });
+    }
     return NextResponse.json(
       { error: "An unexpected error occurred. Please try again later." },
       { status: 500 }

@@ -1,0 +1,21 @@
+# Ingest cron: POST to /api/cron/ingest every 15 minutes (Vercel Hobby allows only 1 cron/day, so we use GitHub Actions).
+name: Ingest Cron
+
+on:
+  schedule:
+    # Every 15 minutes
+    - cron: "*/15 * * * *"
+  workflow_dispatch: # Allow manual run from Actions tab
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger ingest
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sS -X POST "https://youtube-outlier-finder-new.vercel.app/api/cron/ingest" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -w "\nHTTP Status: %{http_code}\n"

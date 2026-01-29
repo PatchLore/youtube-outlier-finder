@@ -1,50 +1,111 @@
 import { NextResponse } from "next/server";
-import { getPool, query } from "@/lib/db";
+import { kv } from "@vercel/kv";
+import { getPool, query, type Channel, type Keyword, type Video, type IngestionJob } from "@/lib/db";
 import {
-  createYouTubeProvider,
-  createScraperProvider,
-  isScraperConfigured,
-  YOUTUBE_QUOTA_PER_SEARCH,
-} from "@/lib/ingestion-providers";
+  fetchYouTubeSearch,
+  fetchVideoDetails,
+  fetchChannelDetails,
+  buildEnrichedVideos,
+} from "@/lib/youtube-ingest";
+import { calculateOutlierScore } from "@/lib/outlier";
 import type { EnrichedVideo } from "@/lib/ingestion-providers";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const KEYWORDS_LIMIT = 3;
-const MAX_RESULTS_PER_QUERY = 15;
-const DEFAULT_DAILY_QUOTA_LIMIT = 10_000;
+const MAX_RESULTS_PER_KEYWORD = 50;
+const KV_QUOTA_CAP = 9500;
 
-async function getTodayQuotaUsed(): Promise<number> {
-  const { rows } = await query<{ total: string }>(
-    `SELECT COALESCE(SUM(quota_units_used), 0)::text AS total
-     FROM ingestion_jobs
-     WHERE completed_at::date = CURRENT_DATE`
-  );
-  return parseInt(rows[0]?.total ?? "0", 10);
+const QUOTA_SEARCH = 100;
+const QUOTA_VIDEOS_PER_ITEM = 1;
+const QUOTA_CHANNELS_PER_ITEM = 1;
+/** Approximate units per keyword: search + 50 videos + 50 channels */
+const QUOTA_PER_KEYWORD =
+  QUOTA_SEARCH + MAX_RESULTS_PER_KEYWORD * (QUOTA_VIDEOS_PER_ITEM + QUOTA_CHANNELS_PER_ITEM);
+
+/** Log full error and stack server-side only; never send stack to client. */
+function logCronError(context: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : undefined;
+  console.error("[Cron Ingest Error]", context, { message: msg, code });
+  if (stack) console.error("[Cron Ingest Error] stack:", stack);
+}
+
+const DB_OFFLINE_BODY = { error: "Database temporarily unavailable", type: "DB_OFFLINE" } as const;
+
+function dbOfflineResponse() {
+  return NextResponse.json(DB_OFFLINE_BODY, { status: 503 });
+}
+
+function logCronInfo(context: string, data: Record<string, unknown>): void {
+  console.log("[Cron Ingest]", { context, ...data });
+}
+
+function getKvQuotaKey(): string {
+  const today = new Date().toISOString().slice(0, 10);
+  return `cron:youtube:quota:${today}`;
+}
+
+async function getKvQuotaUsed(): Promise<number> {
+  try {
+    const key = getKvQuotaKey();
+    const val = await kv.get<number>(key);
+    return typeof val === "number" && Number.isFinite(val) ? val : 0;
+  } catch (err) {
+    logCronError("getKvQuotaUsed", err);
+    return 0;
+  }
+}
+
+async function addKvQuotaUsed(units: number): Promise<void> {
+  if (units <= 0) return;
+  try {
+    const key = getKvQuotaKey();
+    const current = await getKvQuotaUsed();
+    await kv.set(key, current + units);
+  } catch (err) {
+    logCronError("addKvQuotaUsed", err);
+  }
 }
 
 function assertCron(req: Request): void {
-  const auth = req.headers.get("authorization");
   const secret = process.env.CRON_SECRET;
-  if (secret && auth !== `Bearer ${secret}`) {
+  if (!secret || typeof secret !== "string" || secret.trim() === "") {
+    throw new Error("CRON_SECRET not configured");
+  }
+  const auth = req.headers.get("authorization");
+  if (auth !== `Bearer ${secret}`) {
     throw new Error("Unauthorized");
   }
 }
 
-function isQuotaError(err: unknown): boolean {
+/** True if the error is likely DB connection / unavailable (return 503). */
+function isDbUnavailableError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return /quota|403|429|exceeded/i.test(msg);
+  const code = err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";
+  const lower = (msg + " " + code).toLowerCase();
+  return (
+    /DATABASE_URL|connection refused|ECONNREFUSED|ETIMEDOUT|connection terminated|connect ECONNREFUSED|connect ETIMEDOUT|timeout|does not exist|relation .* does not exist|no such table/i.test(lower) ||
+    code === "ECONNREFUSED" ||
+    code === "ETIMEDOUT" ||
+    code === "ENOTFOUND" ||
+    code === "57P01" ||
+    code === "57P03"
+  );
 }
 
+type EnrichedVideoWithScore = EnrichedVideo & { outlier_score: number };
+
 async function persistEnriched(
-  enriched: EnrichedVideo[],
+  enriched: EnrichedVideoWithScore[],
   keywordId: number
 ): Promise<number> {
   const channelIdByYoutubeId: Record<string, number> = {};
 
   for (const v of enriched) {
-    const { rows: chRows } = await query<{ id: number }>(
+    const { rows: chRows } = await query<Pick<Channel, "id">>(
       `INSERT INTO channels (youtube_channel_id, title, subscriber_count, updated_at)
        VALUES ($1, $2, $3, NOW())
        ON CONFLICT (youtube_channel_id) DO UPDATE SET
@@ -63,11 +124,13 @@ async function persistEnriched(
     const channelInternalId = channelIdByYoutubeId[v.youtube_channel_id];
     if (channelInternalId == null) continue;
 
+    const outlierScore = typeof v.outlier_score === "number" && Number.isFinite(v.outlier_score) ? v.outlier_score : null;
+
     await query(
       `INSERT INTO videos (
         youtube_video_id, channel_id, title, thumbnail_url, views,
-        published_at, multiplier, views_per_day, like_ratio, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8, $9, NOW())
+        published_at, multiplier, views_per_day, like_ratio, outlier_score, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8, $9, $10, NOW())
       ON CONFLICT (youtube_video_id) DO UPDATE SET
         channel_id = EXCLUDED.channel_id,
         title = EXCLUDED.title,
@@ -77,6 +140,7 @@ async function persistEnriched(
         multiplier = EXCLUDED.multiplier,
         views_per_day = EXCLUDED.views_per_day,
         like_ratio = EXCLUDED.like_ratio,
+        outlier_score = EXCLUDED.outlier_score,
         updated_at = NOW()`,
       [
         v.youtube_video_id,
@@ -88,11 +152,12 @@ async function persistEnriched(
         v.multiplier,
         v.views_per_day,
         v.like_ratio,
+        outlierScore,
       ]
     );
   }
 
-  const { rows: videoIdRows } = await query<{ id: number }>(
+  const { rows: videoIdRows } = await query<Pick<Video, "id">>(
     `SELECT id FROM videos WHERE youtube_video_id = ANY($1::text[])`,
     [enriched.map((e) => e.youtube_video_id)]
   );
@@ -113,12 +178,21 @@ async function persistEnriched(
 export async function GET(req: Request) {
   try {
     assertCron(req);
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "CRON_SECRET not configured") {
+      logCronError("config", err);
+      return NextResponse.json(
+        { error: "Cron secret not configured" },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const apiKey = process.env.YOUTUBE_API_KEY;
   if (!apiKey) {
+    logCronInfo("config", { error: "YOUTUBE_API_KEY not set" });
     return NextResponse.json(
       { error: "YOUTUBE_API_KEY not set" },
       { status: 500 }
@@ -126,115 +200,129 @@ export async function GET(req: Request) {
   }
 
   if (!getPool()) {
-    return NextResponse.json(
-      { error: "DATABASE_URL not set" },
-      { status: 500 }
-    );
+    return dbOfflineResponse();
   }
-
-  const primary = createYouTubeProvider(apiKey, MAX_RESULTS_PER_QUERY);
-  const secondary = isScraperConfigured() ? createScraperProvider() : null;
 
   let jobId: number | null = null;
   let jobQuotaUsed = 0;
 
   try {
-    const { rows: jobRows } = await query<{ id: number }>(
+    const kvQuotaUsed = await getKvQuotaUsed();
+    if (kvQuotaUsed >= KV_QUOTA_CAP) {
+      logCronInfo("quota_skip", { kv_quota_used: kvQuotaUsed, kv_quota_cap: KV_QUOTA_CAP });
+      return NextResponse.json({
+        ok: true,
+        message: "Daily quota cap reached (KV), skipping ingest",
+        kv_quota_used: kvQuotaUsed,
+        kv_quota_cap: KV_QUOTA_CAP,
+      });
+    }
+
+    const { rows: jobRows } = await query<Pick<IngestionJob, "id">>(
       `INSERT INTO ingestion_jobs (status, job_type, query, started_at, updated_at)
        VALUES ('running', 'youtube_keyword_ingest', 'cron', NOW(), NOW())
        RETURNING id`
     );
     jobId = jobRows[0]?.id ?? null;
     if (jobId == null) {
+      logCronError("job_create", new Error("Failed to create ingestion_jobs row"));
       return NextResponse.json({ error: "Failed to create job" }, { status: 500 });
     }
 
-    const { rows: keywordRows } = await query<{ id: number; keyword: string }>(
-      `SELECT id, keyword FROM keywords ORDER BY id LIMIT $1`,
+    const { rows: keywordRows } = await query<Pick<Keyword, "id" | "keyword">>(
+      `SELECT id, keyword FROM keywords
+       WHERE last_ingested_at IS NULL OR last_ingested_at < NOW() - INTERVAL '24 hours'
+       ORDER BY priority DESC NULLS LAST, last_ingested_at ASC NULLS FIRST
+       LIMIT $1`,
       [KEYWORDS_LIMIT]
     );
 
     if (keywordRows.length === 0) {
       await query(
         `UPDATE ingestion_jobs SET status = 'completed', completed_at = NOW(), quota_units_used = 0, metadata = $1, updated_at = NOW() WHERE id = $2`,
-        [JSON.stringify({ message: "No keywords in database" }), jobId]
+        [JSON.stringify({ message: "No keywords due for ingest (24h cooldown)" }), jobId]
       );
+      logCronInfo("no_keywords", { job_id: jobId });
       return NextResponse.json({ ok: true, message: "No keywords to ingest" });
     }
 
-    const dailyQuotaLimit = parseInt(
-      process.env.QUOTA_DAILY_LIMIT ?? String(DEFAULT_DAILY_QUOTA_LIMIT),
-      10
-    );
-    const todayUsed = await getTodayQuotaUsed();
+    logCronInfo("start", { job_id: jobId, keywords: keywordRows.length, kv_quota_before: kvQuotaUsed });
+
     let totalVideos = 0;
     const errors: string[] = [];
-    const providerPerKeyword: string[] = [];
     let stoppedForQuota = false;
-    let useSecondaryOnly = false;
 
     for (const kw of keywordRows) {
-      const wouldExceedQuota =
-        !useSecondaryOnly &&
-        todayUsed + jobQuotaUsed + YOUTUBE_QUOTA_PER_SEARCH > dailyQuotaLimit;
-
-      if (wouldExceedQuota) {
+      const currentKv = await getKvQuotaUsed();
+      if (currentKv >= KV_QUOTA_CAP) {
         stoppedForQuota = true;
-        if (secondary) {
-          useSecondaryOnly = true;
-        } else {
-          errors.push(
-            `Stopped: daily quota limit near (used ${todayUsed + jobQuotaUsed}, limit ${dailyQuotaLimit}); no secondary provider configured`
-          );
-          break;
-        }
+        logCronInfo("quota_stop", { keyword: kw.keyword, kv_quota_used: currentKv });
+        errors.push(`Stopped: KV quota >= ${KV_QUOTA_CAP} (${currentKv})`);
+        break;
+      }
+      if (currentKv + QUOTA_PER_KEYWORD > KV_QUOTA_CAP) {
+        stoppedForQuota = true;
+        logCronInfo("quota_skip_keyword", { keyword: kw.keyword, would_exceed: currentKv + QUOTA_PER_KEYWORD });
+        errors.push(`Skipped "${kw.keyword}": would exceed ${KV_QUOTA_CAP}`);
+        continue;
       }
 
-      const provider = useSecondaryOnly && secondary ? secondary : primary;
-
       try {
-        const result = await provider.searchAndEnrich(kw.keyword);
-        if (result.videos.length === 0) {
-          providerPerKeyword.push(provider.name);
+        const { videoIds, channelIds } = await fetchYouTubeSearch(
+          apiKey,
+          kw.keyword,
+          MAX_RESULTS_PER_KEYWORD
+        );
+
+        if (videoIds.length === 0) {
+          await query(
+            `UPDATE keywords SET last_ingested_at = NOW() WHERE id = $1`,
+            [kw.id]
+          );
+          logCronInfo("keyword_no_results", { keyword: kw.keyword });
           continue;
         }
 
-        const persisted = await persistEnriched(result.videos, kw.id);
-        totalVideos += persisted;
-        jobQuotaUsed += result.quotaUnitsUsed;
-        providerPerKeyword.push(provider.name);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const usedSecondary = useSecondaryOnly && secondary;
+        const videoItems = await fetchVideoDetails(apiKey, videoIds);
+        const channelMap = await fetchChannelDetails(apiKey, channelIds);
+        const enriched = buildEnrichedVideos(videoItems, channelMap) as EnrichedVideoWithScore[];
 
-        if (
-          !usedSecondary &&
-          isQuotaError(err) &&
-          secondary
-        ) {
-          useSecondaryOnly = true;
-          try {
-            const result = await secondary!.searchAndEnrich(kw.keyword);
-            if (result.videos.length > 0) {
-              const persisted = await persistEnriched(result.videos, kw.id);
-              totalVideos += persisted;
-              providerPerKeyword.push("scraper");
-            } else {
-              providerPerKeyword.push("scraper");
-            }
-          } catch (fallbackErr) {
-            const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-            errors.push(`keyword "${kw.keyword}": YouTube ${msg}; scraper fallback failed: ${fallbackMsg}`);
-            jobQuotaUsed += YOUTUBE_QUOTA_PER_SEARCH;
-            providerPerKeyword.push("youtube");
-          }
-        } else {
-          errors.push(`keyword "${kw.keyword}": ${msg}`);
-          if (!usedSecondary) {
-            jobQuotaUsed += YOUTUBE_QUOTA_PER_SEARCH;
-          }
-          providerPerKeyword.push(provider.name);
+        for (const v of enriched) {
+          v.outlier_score = calculateOutlierScore(
+            v.views,
+            v.subscribers,
+            v.published_at
+          );
         }
+
+        const persisted = await persistEnriched(enriched, kw.id);
+        totalVideos += persisted;
+
+        const unitsThisKeyword =
+          QUOTA_SEARCH +
+          videoIds.length * QUOTA_VIDEOS_PER_ITEM +
+          channelIds.length * QUOTA_CHANNELS_PER_ITEM;
+        jobQuotaUsed += unitsThisKeyword;
+        await addKvQuotaUsed(unitsThisKeyword);
+
+        await query(
+          `UPDATE keywords SET last_ingested_at = NOW() WHERE id = $1`,
+          [kw.id]
+        );
+
+        logCronInfo("keyword_done", {
+          keyword: kw.keyword,
+          videos: persisted,
+          units: unitsThisKeyword,
+          kv_quota_after: await getKvQuotaUsed(),
+        });
+      } catch (err) {
+        logCronError(`keyword "${kw.keyword}"`, err);
+        if (isDbUnavailableError(err)) {
+          throw err;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`"${kw.keyword}": ${msg}`);
       }
     }
 
@@ -246,14 +334,15 @@ export async function GET(req: Request) {
           keywords_processed: keywordRows.length,
           videos_ingested: totalVideos,
           quota_units_used: jobQuotaUsed,
-          daily_quota_limit: dailyQuotaLimit,
+          kv_quota_cap: KV_QUOTA_CAP,
           stopped_for_quota: stoppedForQuota,
-          provider_per_keyword: providerPerKeyword,
           errors: errors.length > 0 ? errors : undefined,
         }),
         jobId,
       ]
     );
+
+    logCronInfo("complete", { job_id: jobId, videos_ingested: totalVideos, quota_units_used: jobQuotaUsed });
 
     return NextResponse.json({
       ok: true,
@@ -262,10 +351,10 @@ export async function GET(req: Request) {
       videos_ingested: totalVideos,
       quota_units_used: jobQuotaUsed,
       stopped_for_quota: stoppedForQuota,
-      provider_per_keyword: providerPerKeyword,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (err) {
+    logCronError("ingest failed", err);
     const msg = err instanceof Error ? err.message : String(err);
     if (jobId != null) {
       await query(
@@ -276,10 +365,15 @@ export async function GET(req: Request) {
           JSON.stringify({ quota_units_used: jobQuotaUsed }),
           jobId,
         ]
-      ).catch(() => {});
+      ).catch((updateErr) => {
+        logCronError("failed to update job status", updateErr);
+      });
+    }
+    if (isDbUnavailableError(err)) {
+      return NextResponse.json(DB_OFFLINE_BODY, { status: 503 });
     }
     return NextResponse.json(
-      { error: "Ingestion failed", message: msg },
+      { error: "Ingestion failed. Please try again later." },
       { status: 500 }
     );
   }

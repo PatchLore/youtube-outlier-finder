@@ -3,7 +3,7 @@
  * Results are shaped for the frontend (OutlierResult, nicheAnalysis, etc.).
  */
 
-import { query } from "@/lib/db";
+import { query, type VideoSearchRow } from "@/lib/db";
 import {
   calculateNicheAverageMultiplier,
   calculateAverageLikeRatio,
@@ -12,19 +12,11 @@ import {
 
 export type DbSearchMode = "momentum" | "proven";
 
-type DbVideoRow = {
-  youtube_video_id: string;
-  title: string | null;
-  thumbnail_url: string | null;
-  views: number;
-  published_at: string | null;
-  multiplier: number | null;
-  views_per_day: number | null;
-  like_ratio: number | null;
-  outlier_tier: string[] | null;
-  channel_title: string | null;
-  subscriber_count: number;
-};
+export type DbSearchPlan = "free" | "pro";
+
+const FREE_RESULTS_LIMIT = 5;
+const PRO_RESULTS_LIMIT = 100;
+const FREE_PUBLISHED_WITHIN_DAYS = 14;
 
 type OutlierResultShape = {
   id: string;
@@ -54,7 +46,7 @@ const NEAR_MISS_MIN = 2.5;
 const NEAR_MISS_MAX = 2.99;
 
 function rowToOutlier(
-  row: DbVideoRow,
+  row: VideoSearchRow,
   opts: {
     nicheAverageMultiplier: number | null;
     nicheAverageLikeRatio: number | null;
@@ -121,11 +113,24 @@ export type DbSearchResponse = {
 
 export async function searchFromDb(
   trimmedQuery: string,
-  mode: DbSearchMode
+  mode: DbSearchMode,
+  options?: { plan?: DbSearchPlan }
 ): Promise<DbSearchResponse> {
+  const plan = options?.plan ?? "free";
   const escaped = trimmedQuery.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
   const searchPattern = `%${escaped}%`;
-  const { rows } = await query<DbVideoRow>(
+
+  const freeAgeFilter =
+    plan === "free"
+      ? ` AND v.published_at < NOW() - INTERVAL '${FREE_PUBLISHED_WITHIN_DAYS} days'`
+      : "";
+  const selectOutlierScore = plan === "pro" ? ", v.outlier_score" : "";
+  const orderBy =
+    plan === "pro"
+      ? "ORDER BY v.outlier_score DESC NULLS LAST, v.multiplier DESC NULLS LAST, v.published_at DESC NULLS LAST"
+      : "ORDER BY v.multiplier DESC NULLS LAST, v.published_at DESC NULLS LAST";
+
+  const { rows } = await query<VideoSearchRow>(
     `SELECT
        v.youtube_video_id,
        v.title,
@@ -138,12 +143,13 @@ export async function searchFromDb(
        v.outlier_tier,
        c.title AS channel_title,
        c.subscriber_count
+       ${selectOutlierScore}
      FROM videos v
      JOIN channels c ON c.id = v.channel_id
      JOIN video_keywords vk ON vk.video_id = v.id
      JOIN keywords k ON k.id = vk.keyword_id
-     WHERE k.keyword ILIKE $1
-     ORDER BY v.multiplier DESC NULLS LAST, v.published_at DESC NULLS LAST`,
+     WHERE k.keyword ILIKE $1${freeAgeFilter}
+     ${orderBy}`,
     [searchPattern]
   );
 
@@ -244,8 +250,15 @@ export async function searchFromDb(
     };
   }
 
+  const resultsLimit = plan === "free" ? FREE_RESULTS_LIMIT : PRO_RESULTS_LIMIT;
+  const cappedResults = results.slice(0, resultsLimit);
+  const cappedNearMisses =
+    plan === "free" ? [] : nearMisses;
+  const cappedRisingSignals =
+    plan === "free" ? [] : risingSignals;
+
   const response: DbSearchResponse = {
-    results,
+    results: cappedResults,
     searchType,
     message:
       searchType === "expanded"
@@ -254,8 +267,8 @@ export async function searchFromDb(
     strict: { minMultiplier: STRICT_MULTIPLIER, maxDays: MOMENTUM_STRICT_DAYS },
     expanded: { minMultiplier: EXPANDED_MULTIPLIER, maxDays: MOMENTUM_EXPANDED_DAYS },
   };
-  if (nearMisses.length > 0) response.nearMisses = nearMisses;
-  if (risingSignals.length > 0) response.risingSignals = risingSignals;
+  if (cappedNearMisses.length > 0) response.nearMisses = cappedNearMisses;
+  if (cappedRisingSignals.length > 0) response.risingSignals = cappedRisingSignals;
   if (nicheAnalysis) response.nicheAnalysis = nicheAnalysis;
 
   return response;

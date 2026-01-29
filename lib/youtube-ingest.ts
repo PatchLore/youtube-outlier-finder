@@ -37,16 +37,16 @@ export async function fetchYouTubeSearch(
   }
   const data = await res.json();
   const items = data.items || [];
-  const videoIds = items
+  const videoIds: string[] = items
     .map((item: any) => item?.id?.videoId)
-    .filter((id: any) => id && typeof id === "string");
+    .filter((id: any): id is string => Boolean(id && typeof id === "string"));
   const channelIds = [
     ...new Set(
       items
         .map((item: any) => item?.snippet?.channelId)
-        .filter((id: any) => id && typeof id === "string")
+        .filter((id: any): id is string => Boolean(id && typeof id === "string"))
     ),
-  ];
+  ] as string[];
   return { videoIds, channelIds, items };
 }
 

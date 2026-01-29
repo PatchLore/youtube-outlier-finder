@@ -1,13 +1,16 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-// 1. Explicitly define all public paths
+// 1. Explicitly define all public paths (Stripe/cron/admin seed must be public – auth via Bearer token)
 const isPublicRoute = createRouteMatcher([
   "/",
   "/pricing",
   "/api/search(.*)",
   "/api/demo-search(.*)",
   "/api/suggested-searches(.*)",
+  "/api/webhooks/stripe",
+  "/api/cron/ingest",
+  "/api/admin/seed-keywords",
   "/sitemap.xml",
   "/robots.txt",
 ]);
@@ -16,11 +19,14 @@ export default clerkMiddleware(async (auth, req) => {
   console.log("Pathname:", req.nextUrl.pathname);
   const { pathname } = req.nextUrl;
 
-  // 2. ABSOLUTE BYPASS: If the request is for our public APIs, skip Clerk entirely
+  // 2. ABSOLUTE BYPASS: Public APIs, webhooks, admin seed – skip Clerk (auth via Bearer CRON_SECRET)
   if (
     pathname.startsWith("/api/search") ||
     pathname.startsWith("/api/demo-search") ||
-    pathname.startsWith("/api/suggested-searches")
+    pathname.startsWith("/api/suggested-searches") ||
+    pathname === "/api/webhooks/stripe" ||
+    pathname === "/api/cron/ingest" ||
+    pathname === "/api/admin/seed-keywords"
   ) {
     return NextResponse.next();
   }
