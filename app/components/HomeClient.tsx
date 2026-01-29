@@ -741,18 +741,113 @@ export function HomeClient() {
 
   async function runDemoSearch() {
     setIsDemoMode(true);
+
+    // Mirror core search UI behavior so the demo feels identical
+    const previousState = {
+      results,
+      nearMisses,
+      nicheAnalysis,
+      risingSignals,
+      adjacentOpps,
+      showRisingSignals,
+      showNearMisses,
+      dismissedSoftLanding,
+      searchSavedConfirmation,
+      hasSearched,
+      hasSubmittedSearch,
+      searchType,
+      expandedResults,
+      showStrictOnly,
+      recommendedAlternatives,
+    };
+
     try {
-      const res = await fetch("/api/demo-search");
-      if (!res.ok) return;
+      setLoading(true);
+      setError(null);
+      setValidationError(null);
+      setRateLimitMessage(null);
+
+      // Treat demo as a full search execution
+      setHasSearched(true);
+      setHasSubmittedSearch(true);
+
+      // Clear previous UI state before loading demo results
+      setResults([]);
+      setNearMisses([]);
+      setNicheAnalysis(null);
+      setRisingSignals([]);
+      setAdjacentOpps([]);
+      setShowRisingSignals(false);
+      setShowNearMisses(false);
+      setDismissedSoftLanding(false);
+      setSearchSavedConfirmation(false);
+      setSearchType(null);
+      setExpandedResults([]);
+      setShowStrictOnly(false);
+      setRecommendedAlternatives([]);
+
+      // Bypass any HTTP cache by adding a timestamp param
+      const res = await fetch(`/api/demo-search?t=${Date.now()}`);
+      if (!res.ok) {
+        // Restore previous state if demo fails
+        setResults(previousState.results);
+        setNearMisses(previousState.nearMisses);
+        setNicheAnalysis(previousState.nicheAnalysis);
+        setRisingSignals(previousState.risingSignals);
+        setAdjacentOpps(previousState.adjacentOpps);
+        setShowRisingSignals(previousState.showRisingSignals);
+        setShowNearMisses(previousState.showNearMisses);
+        setDismissedSoftLanding(previousState.dismissedSoftLanding);
+        setSearchSavedConfirmation(previousState.searchSavedConfirmation);
+        setHasSearched(previousState.hasSearched);
+        setHasSubmittedSearch(previousState.hasSubmittedSearch);
+        setSearchType(previousState.searchType);
+        setExpandedResults(previousState.expandedResults);
+        setShowStrictOnly(previousState.showStrictOnly);
+        setRecommendedAlternatives(previousState.recommendedAlternatives);
+        return;
+      }
+
       const data = await res.json();
-      const queryTerm = data?.query;
-      if (typeof queryTerm === "string" && queryTerm.trim().length > 0) {
-        setQuery(queryTerm);
-        await performSearch(queryTerm);
+      const demoQuery =
+        typeof data?.query === "string" && data.query.trim().length > 0
+          ? data.query
+          : "Faceless history shorts";
+      const demoResults: OutlierResult[] = Array.isArray(data)
+        ? (data as OutlierResult[])
+        : ((data?.results || []) as OutlierResult[]);
+
+      setQuery(demoQuery);
+      setResults(demoResults);
+      if (data?.nicheAnalysis) {
+        setNicheAnalysis(data.nicheAnalysis as NicheAnalysis);
+      }
+      if (data?.risingSignals) {
+        setRisingSignals((data.risingSignals || []) as OutlierResult[]);
+      }
+      if (data?.searchType) {
+        setSearchType(data.searchType as "strict" | "expanded" | null);
+      }
+
+      // Mark onboarding breakout state if the demo includes a 3×+ result
+      const hasBreakout = demoResults.some(
+        (v) => typeof v.multiplier === "number" && v.multiplier >= 3
+      );
+      if (hasBreakout && !hasSeenBreakout) {
+        setHasSeenBreakout(true);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(ONBOARDING_BREAKOUT_KEY, "true");
+        }
+      }
+
+      // Show explanation only after demo results are on screen
+      if (demoResults.length > 0) {
         setTimeout(() => setShowDemoExplanation(true), 1500);
       }
     } catch {
-      // Ignore demo errors
+      // Swallow demo errors so they never block normal usage
+    } finally {
+      setLoading(false);
     }
   }
 

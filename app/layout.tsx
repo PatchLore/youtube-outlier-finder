@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthButton } from "./components/AuthButton";
+import { Footer } from "@/components/Footer";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,16 +18,19 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.outlieryt.com"),
   title: "YouTube Outlier Finder – Find Breakout Video Ideas Early",
-  description: "Discover YouTube videos that are outperforming expectations before they go mainstream.",
+  description:
+    "Discover YouTube videos that are outperforming expectations before they go mainstream.",
   openGraph: {
     title: "YouTube Outlier Finder – Find Breakout Video Ideas Early",
-    description: "Discover YouTube videos that are outperforming expectations before they go mainstream.",
+    description:
+      "Discover YouTube videos that are outperforming expectations before they go mainstream.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
     title: "YouTube Outlier Finder – Find Breakout Video Ideas Early",
-    description: "Discover YouTube videos that are outperforming expectations before they go mainstream.",
+    description:
+      "Discover YouTube videos that are outperforming expectations before they go mainstream.",
   },
 };
 
@@ -40,9 +44,12 @@ export default function RootLayout({
       publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     >
       <html lang="en">
-        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} flex min-h-screen flex-col antialiased`}
+        >
           <AuthButton />
-          {children}
+          <main className="flex-1">{children}</main>
+          <Footer />
         </body>
       </html>
     </ClerkProvider>

@@ -10,6 +10,7 @@ const FREE_RESULT_LIMIT = 5;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 100;
 const MAX_QUERY_LENGTH = 100;
+const SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 6;
 
 // In-memory rate limit store (per instance). Replace with durable store in production.
 const rateLimitStore = new Map<string, { count: number; windowStart: number }>();
@@ -88,6 +89,23 @@ export async function GET(req: Request) {
         { error: `Search query must be ${MAX_QUERY_LENGTH} characters or less.` },
         { status: 400 }
       );
+    }
+
+    // Cache: serve recent results to reduce quota usage
+    const mode = url.searchParams.get("mode") || "momentum";
+    const cacheKey = `search:${mode}:${trimmedQuery.toLowerCase()}`;
+    try {
+      const cached = await kv.get(cacheKey);
+      if (cached) {
+        const cachedResponse = NextResponse.json(cached);
+        cachedResponse.headers.set("X-Cache", "HIT");
+        cachedResponse.headers.set("Access-Control-Allow-Origin", "https://www.outlieryt.com");
+        cachedResponse.headers.set("Access-Control-Allow-Methods", "GET,OPTIONS");
+        cachedResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        return cachedResponse;
+      }
+    } catch {
+      // Ignore cache failures; continue with live fetch
     }
 
     // Rate limiting: apply after validation so invalid requests don't count.
@@ -306,7 +324,7 @@ export async function GET(req: Request) {
     }
 
     // Parse mode query parameter (default to "momentum")
-    const mode = url.searchParams.get("mode") || "momentum";
+    // (mode already read for cache key)
     const isMomentumMode = mode === "momentum";
 
     // Parse optional freshness/velocity options from query params
@@ -785,6 +803,14 @@ export async function GET(req: Request) {
       Object.entries(rateLimitHeaders).forEach(([key, value]) => {
         jsonResponse.headers.set(key, value);
       });
+    }
+    jsonResponse.headers.set("X-Cache", "MISS");
+
+    // Cache successful responses for 6 hours
+    try {
+      await kv.set(cacheKey, response, { ex: SEARCH_CACHE_TTL_SECONDS });
+    } catch {
+      // Ignore cache failures
     }
     return jsonResponse;
   } catch (error: any) {
