@@ -7,11 +7,21 @@ export const dynamic = "force-dynamic";
 
 const FREE_RESULT_LIMIT = 5;
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_MAX = 100;
 const MAX_QUERY_LENGTH = 100;
 
 // In-memory rate limit store (per instance). Replace with durable store in production.
 const rateLimitStore = new Map<string, { count: number; windowStart: number }>();
+
+async function fetchWithTimeout(url: string, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function getClientIp(req: Request): string {
   const forwardedFor = req.headers.get("x-forwarded-for");
@@ -78,49 +88,51 @@ export async function GET(req: Request) {
     const userId: string | null = null;
     console.log("API Search Hit:", { q: trimmedQuery, userId: userId ?? "Guest" });
     const scope = url.searchParams.get("rateLimitScope") || "primary";
-    const shouldRateLimit = scope === "primary";
+    const shouldRateLimit = scope === "primary" && process.env.NODE_ENV !== "development";
     const baseKey = userId ? `user:${userId}` : `ip:${getClientIp(req)}`;
     const rateLimitKey = `${baseKey}:${scope}`;
     const now = Date.now();
 
     if (shouldRateLimit) {
-      const existing = rateLimitStore.get(rateLimitKey);
-      let currentCount = 1;
-      let windowStart = now;
+      try {
+        const existing = rateLimitStore.get(rateLimitKey);
+        let currentCount = 1;
 
-      if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
-        rateLimitStore.set(rateLimitKey, { count: 1, windowStart: now });
-      } else if (existing.count >= RATE_LIMIT_MAX) {
-        const remainingSeconds = Math.max(
-          0,
-          Math.ceil((RATE_LIMIT_WINDOW_MS - (now - existing.windowStart)) / 1000)
-        );
+        if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
+          rateLimitStore.set(rateLimitKey, { count: 1, windowStart: now });
+        } else if (existing.count >= RATE_LIMIT_MAX) {
+          const remainingSeconds = Math.max(
+            0,
+            Math.ceil((RATE_LIMIT_WINDOW_MS - (now - existing.windowStart)) / 1000)
+          );
+          rateLimitHeaders = {
+            "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+            "X-RateLimit-Remaining": "0",
+            "Retry-After": String(remainingSeconds),
+          };
+          console.log(
+            `[RateLimit] ${baseKey} | Count: ${existing.count}/${RATE_LIMIT_MAX} | Trigger: ${scope} | BLOCKED`
+          );
+          return NextResponse.json(
+            { error: "Too many requests. Please wait a minute and try again." },
+            { status: 429, headers: rateLimitHeaders }
+          );
+        } else {
+          existing.count += 1;
+          currentCount = existing.count;
+        }
+
+        const remaining = Math.max(0, RATE_LIMIT_MAX - currentCount);
         rateLimitHeaders = {
           "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
-          "X-RateLimit-Remaining": "0",
-          "Retry-After": String(remainingSeconds),
+          "X-RateLimit-Remaining": String(remaining),
         };
         console.log(
-          `[RateLimit] ${baseKey} | Count: ${existing.count}/${RATE_LIMIT_MAX} | Trigger: ${scope} | BLOCKED`
+          `[RateLimit] ${baseKey} | Count: ${currentCount}/${RATE_LIMIT_MAX} | Trigger: ${scope}`
         );
-        return NextResponse.json(
-          { error: "Too many requests. Please wait a minute and try again." },
-          { status: 429, headers: rateLimitHeaders }
-        );
-      } else {
-        existing.count += 1;
-        currentCount = existing.count;
-        windowStart = existing.windowStart;
+      } catch (err) {
+        console.warn("[RateLimit] Failed, allowing request:", err);
       }
-
-      const remaining = Math.max(0, RATE_LIMIT_MAX - currentCount);
-      rateLimitHeaders = {
-        "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
-        "X-RateLimit-Remaining": String(remaining),
-      };
-      console.log(
-        `[RateLimit] ${baseKey} | Count: ${currentCount}/${RATE_LIMIT_MAX} | Trigger: ${scope}`
-      );
     }
 
     // Build YouTube Search API request
@@ -136,7 +148,7 @@ export async function GET(req: Request) {
     const searchUrl = `https://www.googleapis.com/youtube/v3/search?${searchParams.toString()}`;
 
     // 1. Search videos
-    const searchRes = await fetch(searchUrl);
+    const searchRes = await fetchWithTimeout(searchUrl, 10000);
     
     if (!searchRes.ok) {
       // Quota or upstream errors should be sanitized for clients.
@@ -177,7 +189,7 @@ export async function GET(req: Request) {
     });
 
     const videoUrl = `https://www.googleapis.com/youtube/v3/videos?${videoParams.toString()}`;
-    const videoRes = await fetch(videoUrl);
+    const videoRes = await fetchWithTimeout(videoUrl, 10000);
 
     if (!videoRes.ok) {
       // Quota or upstream errors should be sanitized for clients.
@@ -200,7 +212,7 @@ export async function GET(req: Request) {
     });
 
     const channelUrl = `https://www.googleapis.com/youtube/v3/channels?${channelParams.toString()}`;
-    const channelRes = await fetch(channelUrl);
+    const channelRes = await fetchWithTimeout(channelUrl, 10000);
 
     if (!channelRes.ok) {
       // Quota or upstream errors should be sanitized for clients.
@@ -709,13 +721,17 @@ export async function GET(req: Request) {
     }
 
     const jsonResponse = NextResponse.json(response);
+    jsonResponse.headers.set("Access-Control-Allow-Origin", "https://www.outlieryt.com");
+    jsonResponse.headers.set("Access-Control-Allow-Methods", "GET,OPTIONS");
+    jsonResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (rateLimitHeaders) {
       Object.entries(rateLimitHeaders).forEach(([key, value]) => {
         jsonResponse.headers.set(key, value);
       });
     }
     return jsonResponse;
-  } catch (err: any) {
+  } catch (error: any) {
+    console.error("[Search API Error]:", error);
     return NextResponse.json(
       {
         error: "An unexpected error occurred. Please try again later.",
