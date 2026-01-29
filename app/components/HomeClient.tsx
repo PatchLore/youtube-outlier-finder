@@ -1331,7 +1331,7 @@ export function HomeClient() {
                   setValidationError(null);
                 }
               }}
-              placeholder="Search by niche + format (e.g. 'gaming horror', 'roblox myths')"
+              placeholder="Enter a niche (e.g., AI Agents, Faceless Finance)..."
               className="w-full rounded-md bg-neutral-900 border border-neutral-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/70 focus:border-red-500/70 placeholder:text-neutral-500"
             />
             <button
@@ -1367,9 +1367,9 @@ export function HomeClient() {
                   count: s.count,
                 }))
               : [
+                  { label: "AI Agents", count: 5 },
                   { label: "Deep Research", count: 3 },
                   { label: "Faceless Travel", count: 2 },
-                  { label: "AI Agents", count: 5 },
                   { label: "SaaS Micro-scripts", count: 1 },
                 ]
             ).map((example) => (
