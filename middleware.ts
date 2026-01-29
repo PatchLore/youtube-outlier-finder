@@ -5,6 +5,8 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/pricing",
   "/api/search(.*)",
+  "/api/demo-search(.*)",
+  "/api/suggested-searches(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
@@ -15,6 +17,12 @@ export default clerkMiddleware(async (auth, req) => {
 
   // Skip /api/search to allow outbound HTTP requests without Clerk processing
   if (req.nextUrl.pathname.startsWith("/api/search")) {
+    return NextResponse.next();
+  }
+  if (req.nextUrl.pathname.startsWith("/api/demo-search")) {
+    return NextResponse.next();
+  }
+  if (req.nextUrl.pathname.startsWith("/api/suggested-searches")) {
     return NextResponse.next();
   }
 

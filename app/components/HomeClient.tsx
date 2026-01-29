@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { getUserPlan, isPro, type UserPlan } from "@/lib/auth";
+import { MarketIntelligenceReport } from "./MarketIntelligenceReport";
 
 type OutlierResult = {
   id: string;
@@ -338,11 +339,22 @@ function generateRefinementSuggestions(query: string): string[] {
 
 const FREE_LIMIT = 5;
 const ONBOARDING_BREAKOUT_KEY = "youtube-outlier-has-breakout";
+const DEMO_COMPLETED_KEY = "outlier_demo_completed";
 
 type AdjacentOpportunity = {
   term: string;
   breakoutCount: number;
   avgMultiplier: number;
+};
+
+type SuggestedSearch = {
+  query: string;
+  count: number;
+};
+
+type RecommendedAlternative = {
+  query: string;
+  count: number;
 };
 
 type SubscriberCap = "<10k" | "<50k" | "<100k" | "<250k" | "<500k" | "<1M" | "nolimit";
@@ -359,6 +371,8 @@ interface NicheAnalysis {
   scannedVideos: number;
   averageChannelSize: number;
   dominantChannelThreshold: number;
+  averageMultiplier?: number;
+  topMultiplier?: number;
   explanation: string;
   difficultyLevel: DifficultyLevel;
   suggestedSearches: string[];
@@ -390,6 +404,14 @@ export function HomeClient() {
   const [queryHistoryCount, setQueryHistoryCount] = useState(0);
   const [adjacentOpps, setAdjacentOpps] = useState<AdjacentOpportunity[]>([]);
   const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [hasSeenDemo, setHasSeenDemo] = useState(false);
+  const [showDemoExplanation, setShowDemoExplanation] = useState(false);
+  const [suggestedSearches, setSuggestedSearches] = useState<SuggestedSearch[]>([]);
+  const [searchType, setSearchType] = useState<"strict" | "expanded" | null>(null);
+  const [expandedResults, setExpandedResults] = useState<OutlierResult[]>([]);
+  const [showStrictOnly, setShowStrictOnly] = useState(false);
+  const [recommendedAlternatives, setRecommendedAlternatives] = useState<RecommendedAlternative[]>([]);
 
   // Default to higher cap for Pro users to unlock benefits immediately
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
@@ -443,6 +465,36 @@ export function HomeClient() {
         setHasSeenBreakout(true);
       }
     }
+  }, []);
+
+  // Load demo completion state
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem(DEMO_COMPLETED_KEY);
+      if (stored === "true") {
+        setHasSeenDemo(true);
+      }
+    }
+  }, []);
+
+  // Fetch suggested searches (dynamic, cached)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/suggested-searches");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data)) {
+          setSuggestedSearches(data as SuggestedSearch[]);
+        }
+      } catch {
+        // Ignore suggestion errors
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Compute adjacent opportunities when quiet or user has explored multiple queries
@@ -584,6 +636,10 @@ export function HomeClient() {
       searchSavedConfirmation,
       hasSearched,
       hasSubmittedSearch,
+      searchType,
+      expandedResults,
+      showStrictOnly,
+      recommendedAlternatives,
     };
 
     setLoading(true);
@@ -602,6 +658,10 @@ export function HomeClient() {
     setShowNearMisses(false); // Reset opt-in state
     setDismissedSoftLanding(false); // Reset dismissal state
     setSearchSavedConfirmation(false); // Reset confirmation
+    setSearchType(null);
+    setExpandedResults([]);
+    setShowStrictOnly(false);
+    setRecommendedAlternatives([]);
 
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}&mode=${searchMode || "momentum"}`);
@@ -621,6 +681,10 @@ export function HomeClient() {
           setSearchSavedConfirmation(previousState.searchSavedConfirmation);
           setHasSearched(previousState.hasSearched);
           setHasSubmittedSearch(previousState.hasSubmittedSearch);
+          setSearchType(previousState.searchType);
+          setExpandedResults(previousState.expandedResults);
+          setShowStrictOnly(previousState.showStrictOnly);
+          setRecommendedAlternatives(previousState.recommendedAlternatives);
           return;
         }
         const data = await res.json().catch(() => null);
@@ -636,11 +700,16 @@ export function HomeClient() {
         setNearMisses([]);
         setNicheAnalysis(null);
         setRisingSignals([]);
+        setSearchType(null);
+        setExpandedResults([]);
       } else {
         newResults = (data.results || []) as OutlierResult[];
         setNearMisses((data.nearMisses || []) as (OutlierResult & { reason?: string })[]);
         setNicheAnalysis((data.nicheAnalysis || null) as NicheAnalysis | null);
         setRisingSignals((data.risingSignals || []) as OutlierResult[]);
+        setSearchType((data.searchType || null) as "strict" | "expanded" | null);
+        setExpandedResults((data.searchType === "expanded" ? data.results : []) as OutlierResult[]);
+        setRecommendedAlternatives((data.recommendedAlternatives || []) as RecommendedAlternative[]);
       }
 
       setResults(newResults);
@@ -668,6 +737,23 @@ export function HomeClient() {
     setQuery(exampleQuery);
     // Trigger search directly with the provided term
     performSearch(exampleQuery);
+  }
+
+  async function runDemoSearch() {
+    setIsDemoMode(true);
+    try {
+      const res = await fetch("/api/demo-search");
+      if (!res.ok) return;
+      const data = await res.json();
+      const queryTerm = data?.query;
+      if (typeof queryTerm === "string" && queryTerm.trim().length > 0) {
+        setQuery(queryTerm);
+        await performSearch(queryTerm);
+        setTimeout(() => setShowDemoExplanation(true), 1500);
+      }
+    } catch {
+      // Ignore demo errors
+    }
   }
 
   async function handleCheckout() {
@@ -710,7 +796,10 @@ export function HomeClient() {
     await performSearch(query);
   }
 
-  const filteredResults = [...results]
+  const baseResultsForDisplay =
+    searchType === "expanded" && showStrictOnly ? [] : results;
+
+  const filteredResults = [...baseResultsForDisplay]
     .filter((video) => {
       // Subscriber cap logic
       if (userIsPro) {
@@ -738,9 +827,12 @@ export function HomeClient() {
     });
 
   // Merge nearMisses into results if user opted in
-  const resultsToDisplay = showNearMisses && nearMisses.length > 0
-    ? [...filteredResults, ...nearMisses]
-    : filteredResults;
+  const resultsToDisplay =
+    searchType === "expanded"
+      ? filteredResults
+      : showNearMisses && nearMisses.length > 0
+      ? [...filteredResults, ...nearMisses]
+      : filteredResults;
   
   const visibleResults = userIsPro ? resultsToDisplay : resultsToDisplay.slice(0, FREE_LIMIT);
 
@@ -1045,6 +1137,23 @@ export function HomeClient() {
 
       {/* Search Section */}
       <div id="search" className="mx-auto max-w-7xl px-6 pb-16">
+        {!hasSeenDemo && (
+          <div className="max-w-2xl mx-auto mb-8 p-6 rounded-xl bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20">
+            <h3 className="text-xl font-semibold mb-3">
+              👋 New here? See a live breakout in action
+            </h3>
+            <p className="text-gray-400 mb-4">
+              We&apos;ll show you a real example of videos breaking out right now,
+              so you understand what we&apos;re looking for.
+            </p>
+            <button
+              onClick={runDemoSearch}
+              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:shadow-lg hover:shadow-purple-500/50 transition-all"
+            >
+              Show me a real breakout →
+            </button>
+          </div>
+        )}
 
         {/* Onboarding state: curated breakout searches for first-time users */}
         {!hasSubmittedSearch && !hasSeenBreakout && (
@@ -1138,21 +1247,32 @@ export function HomeClient() {
             Combine niche and format for better results (e.g. "faceless youtube", "minecraft shorts")
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-            <span className="text-xs text-neutral-600">Try:</span>
-            {[
-              "faceless history facts",
-              "AI tools for students",
-              "study with me pomodoro",
-              "gaming challenge shorts",
-              "productivity apps review"
-            ].map((example) => (
+            <span className="text-xs text-neutral-600">
+              🔥 Active right now (updated every 6 hours):
+            </span>
+            {(suggestedSearches.length > 0
+              ? suggestedSearches.map((s) => ({
+                  label: s.query,
+                  count: s.count,
+                }))
+              : [
+                  { label: "faceless history facts", count: 0 },
+                  { label: "AI tools for students", count: 0 },
+                  { label: "study with me pomodoro", count: 0 },
+                  { label: "gaming challenge shorts", count: 0 },
+                  { label: "productivity apps review", count: 0 },
+                ]
+            ).map((example) => (
               <button
-                key={example}
+                key={example.label}
                 type="button"
-                onClick={() => handleExampleSearch(example)}
+                onClick={() => handleExampleSearch(example.label)}
                 className="text-xs text-neutral-400 hover:text-neutral-300 transition-colors underline decoration-neutral-600 hover:decoration-neutral-400"
               >
-                {example}
+                {example.label}
+                {example.count > 0 && (
+                  <span className="ml-1 text-purple-400">({example.count} 🔥)</span>
+                )}
               </button>
             ))}
           </div>
@@ -1373,35 +1493,91 @@ export function HomeClient() {
 
                   {nicheAnalysis.nicheStatus === "QUIET" ? (
                     <>
-                      {/* QUIET explanation */}
-                      <div className="space-y-3">
-                        <p className="text-sm text-neutral-300 leading-relaxed">
-                          &apos;{query || "This search"}&apos; is currently showing normal performance.
-                        </p>
-                        <p className="text-[0.7rem] text-neutral-500">
-                          Strict breakout scan (recent, small channels, 3×+).
-                        </p>
-                        <div className="space-y-1">
-                          <p className="text-xs text-neutral-400 leading-relaxed">
-                            We scanned {nicheAnalysis.scannedVideos} recent videos from channels under 50k subscribers.
+                      <div className="space-y-6">
+                        {/* Header */}
+                        <div className="text-center">
+                          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/30 mb-4">
+                            <span className="text-2xl">📊</span>
+                            <span className="font-semibold text-blue-300">Market Intelligence Report</span>
+                          </div>
+                          <h2 className="text-2xl font-bold mb-2">
+                            &quot;{query || "This search"}&quot;
+                          </h2>
+                          <p className="text-gray-400">
+                            Status: <span className="text-blue-400 font-semibold">MATURE MARKET</span>
                           </p>
-                          <p className="text-xs text-neutral-400 leading-relaxed">
-                            None showed abnormal performance (3×+ views relative to channel size).
-                          </p>
+                        </div>
+
+                        {/* Research Summary */}
+                        <div className="bg-gray-800/30 border border-gray-700 rounded-xl p-6">
+                          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                            <span>🔍</span> What We Found
+                          </h3>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-purple-400">
+                                {nicheAnalysis.scannedVideos}
+                              </div>
+                              <div className="text-xs text-gray-400">Videos Scanned</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-purple-400">
+                                {nicheAnalysis.averageMultiplier ? `${nicheAnalysis.averageMultiplier}×` : "—"}
+                              </div>
+                              <div className="text-xs text-gray-400">Avg Multiplier</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-purple-400">
+                                {nicheAnalysis.averageChannelSize ? formatNumber(nicheAnalysis.averageChannelSize) : "—"}
+                              </div>
+                              <div className="text-xs text-gray-400">Avg Channel Size</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-purple-400">
+                                {nicheAnalysis.topMultiplier ? `${nicheAnalysis.topMultiplier}×` : "—"}
+                              </div>
+                              <div className="text-xs text-gray-400">Top Performer</div>
+                            </div>
+                          </div>
+
+                          <div className="bg-gray-900/50 rounded-lg p-4">
+                            <p className="text-sm text-gray-300">
+                              <strong className="text-white">Verdict:</strong> This niche is currently
+                              dominated by established channels (avg {nicheAnalysis.averageChannelSize ? formatNumber(nicheAnalysis.averageChannelSize) : "—"} subs).
+                              Videos are performing <strong className="text-yellow-400">predictably</strong>
+                              {nicheAnalysis.averageMultiplier ? ` (${nicheAnalysis.averageMultiplier}× avg)` : ""} rather than breaking out (3×+ needed).
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* What This Means */}
+                        <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-xl p-6">
+                          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                            <span>💡</span> What This Tells You
+                          </h3>
+                          <ul className="space-y-2 text-sm text-gray-300">
+                            <li className="flex items-start gap-2">
+                              <span className="text-green-400 mt-1">✓</span>
+                              <span>No small creators are breaking through here right now</span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                              <span className="text-green-400 mt-1">✓</span>
+                              <span>This niche is <strong>stable/mature</strong> — not trending upward for newcomers</span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                              <span className="text-green-400 mt-1">✓</span>
+                              <span>You&apos;ve just <strong>saved hours</strong> you would have wasted competing here</span>
+                            </li>
+                          </ul>
                         </div>
                       </div>
 
-                      {/* What this tells you */}
-                      <div className="space-y-2 pt-4 border-t border-neutral-800">
-                        <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-                          What this tells you
-                        </h4>
-                        <ul className="list-disc list-inside space-y-1 text-xs text-neutral-300">
-                          <li>No small creators are breaking out here right now</li>
-                          <li>Videos are performing as expected for their size</li>
-                          <li>This niche may be stable or needs a new framing</li>
-                        </ul>
-                      </div>
+                      <MarketIntelligenceReport
+                        alternatives={recommendedAlternatives}
+                        nicheName={query || "this niche"}
+                        onSelect={(term) => handleExampleSearch(term)}
+                      />
 
                       {/* Emerging Signals (Optional STATE D) */}
                       {risingSignals.length > 0 && (
@@ -1860,6 +2036,37 @@ export function HomeClient() {
                   : "Proven formats that outperformed expectations"}
               </p>
             </div>
+            {searchType === "expanded" && (
+              <div className="max-w-3xl mx-auto mb-4 bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">🔍</span>
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-blue-300 mb-1">
+                      Expanded Search Results
+                    </h4>
+                    <p className="text-sm text-gray-300">
+                      No videos met strict criteria (3×+, 60 days), so we expanded to
+                      include videos with 2.5×+ multipliers from the last 90 days.
+                    </p>
+                    {showStrictOnly ? (
+                      <button
+                        onClick={() => setShowStrictOnly(false)}
+                        className="mt-2 text-sm text-blue-400 hover:text-blue-300 underline"
+                      >
+                        Show expanded results again
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowStrictOnly(true)}
+                        className="mt-2 text-sm text-blue-400 hover:text-blue-300 underline"
+                      >
+                        Show only strict results instead
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
             {filteredResults.length < 5 && filteredResults.length > 0 && (
               <div className="max-w-3xl mx-auto mb-4 p-3 bg-neutral-900/50 border border-neutral-800 rounded-lg">
                 <p className="text-xs text-neutral-300 text-center leading-relaxed">
@@ -2154,85 +2361,62 @@ export function HomeClient() {
           </>
         )}
 
-        {/* Rising Signals Section - Opt-in, Pro-only */}
+        {/* Rising Signals Section - Opt-in secondary tier */}
         {/* Show when rising signals exist, regardless of main results */}
         {hasSearched && risingSignals.length > 0 && (
           <div className="max-w-3xl mx-auto mt-8">
             {/* Toggle/CTA Header */}
-            <div className="mb-4 p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+            <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-neutral-200 mb-1">
                     Rising Signals (Early Momentum)
                   </h3>
                   <p className="text-xs text-neutral-400">
-                    {risingSignals.length} video{risingSignals.length === 1 ? "" : "s"} with 2.0–2.9× multiplier showing early momentum
+                    {Math.min(risingSignals.length, 5)} video{Math.min(risingSignals.length, 5) === 1 ? "" : "s"} with 2.0–2.9× multiplier showing early momentum
                   </p>
                 </div>
-                {userIsPro ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowRisingSignals(!showRisingSignals)}
-                    className="px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
-                    style={{
-                      background: showRisingSignals 
-                        ? "rgba(255, 255, 255, 0.1)" 
-                        : "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
-                      boxShadow: showRisingSignals 
-                        ? "none" 
-                        : "0 0 20px rgba(168, 85, 247, 0.3)"
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!showRisingSignals) {
-                        e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.5)";
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!showRisingSignals) {
-                        e.currentTarget.style.boxShadow = "0 0 20px rgba(168, 85, 247, 0.3)";
-                      }
-                    }}
-                  >
-                    {showRisingSignals ? "Hide" : "Show"} (Pro)
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleCheckout}
-                    className="px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
-                    style={{
-                      background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
-                      boxShadow: "0 0 20px rgba(168, 85, 247, 0.3)"
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.boxShadow = "0 0 30px rgba(168, 85, 247, 0.5)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.boxShadow = "0 0 20px rgba(168, 85, 247, 0.3)";
-                    }}
-                  >
-                    Unlock Pro →
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setShowRisingSignals(!showRisingSignals)}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold text-amber-100 transition-all duration-300 hover:-translate-y-0.5"
+                  style={{
+                    background: showRisingSignals
+                      ? "rgba(255, 255, 255, 0.1)"
+                      : "linear-gradient(135deg, rgba(251, 191, 36, 0.25) 0%, rgba(245, 158, 11, 0.35) 100%)",
+                    boxShadow: showRisingSignals
+                      ? "none"
+                      : "0 0 20px rgba(245, 158, 11, 0.35)"
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!showRisingSignals) {
+                      e.currentTarget.style.boxShadow = "0 0 30px rgba(245, 158, 11, 0.5)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!showRisingSignals) {
+                      e.currentTarget.style.boxShadow = "0 0 20px rgba(245, 158, 11, 0.35)";
+                    }
+                  }}
+                >
+                  {showRisingSignals ? "Hide Rising Signals" : `Show ${Math.min(risingSignals.length, 5)} Rising Signals (Early Momentum)`}
+                </button>
               </div>
             </div>
 
-            {/* Rising Signals Cards - Only shown when opted in and user is Pro */}
-            {userIsPro && showRisingSignals && (
+            {/* Rising Signals Cards - Only shown when opted in */}
+            {showRisingSignals && (
               <div className="space-y-4">
                 {/* Disclaimer */}
-                <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                  <p className="text-xs text-yellow-300 font-semibold mb-1">
-                    ⚠️ Important: These are NOT breakouts yet
-                  </p>
-                  <p className="text-xs text-yellow-200/80 leading-relaxed">
-                    These videos show early momentum (2.0–2.9× multiplier) but haven&apos;t reached full breakout status (3×+). Use them to spot trends early, but they carry higher risk.
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                  <p className="text-xs text-amber-200/90 leading-relaxed">
+                    ⚠️ Early Signals: These videos show strong momentum but haven&apos;t yet crossed our strict 3× Outlier threshold. Use for early trend spotting.
                   </p>
                 </div>
 
                 {/* Rising Signals Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {risingSignals.map((video) => {
+                  {risingSignals.slice(0, 5).map((video) => {
                     const daysAgo = getDaysAgo(video.publishedAt);
                     return (
                       <a
@@ -2250,7 +2434,7 @@ export function HomeClient() {
                           />
                           {/* Rising Signal Badge */}
                           <div className="absolute top-2 right-2">
-                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                               RISING
                             </span>
                           </div>
@@ -2346,6 +2530,44 @@ export function HomeClient() {
             </p>
           </div>
         </div>
+
+        {showDemoExplanation && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 border border-purple-500/30 rounded-2xl p-8 max-w-2xl">
+              <h3 className="text-2xl font-bold mb-4">
+                ✅ This is what we look for
+              </h3>
+              <p className="text-gray-300 mb-4">
+                See those multipliers? (3.2×, 4.8×, 5.1×)
+              </p>
+              <p className="text-gray-300 mb-4">
+                These videos got <strong>3-5× MORE views</strong> than their
+                channel had subscribers. That&apos;s abnormal performance—and that&apos;s
+                the signal we detect.
+              </p>
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-6">
+                <p className="text-yellow-200 text-sm">
+                  ⚠️ <strong>Important:</strong> Not every niche will have breakouts
+                  right now. When you see &quot;QUIET,&quot; it means the niche is stable or
+                  saturated—which is valuable intelligence that saves you time.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDemoExplanation(false);
+                  if (typeof window !== "undefined") {
+                    window.localStorage.setItem(DEMO_COMPLETED_KEY, "true");
+                  }
+                  setHasSeenDemo(true);
+                  setQuery("");
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold"
+              >
+                Got it – let me search my niche →
+              </button>
+            </div>
+          </div>
+        )}
 
         <p className="mt-8 text-center text-xs text-zinc-600">
           One breakout idea can outperform months of guesswork.

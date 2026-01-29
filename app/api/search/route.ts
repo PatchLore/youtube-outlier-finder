@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { kv } from "@vercel/kv";
 import { auth } from "@clerk/nextjs/server";
 import { calculateViralityMultiplier, calculateViewsPerDay, calculateAverageLikeRatio, calculateNicheAverageMultiplier, classifyOutlier, isOutlierVideo, type OutlierOptions } from "@/lib/outlier";
 
@@ -31,10 +32,17 @@ export interface NicheAnalysis {
   scannedVideos: number;
   averageChannelSize: number;
   dominantChannelThreshold: number;
+  averageMultiplier?: number;
+  topMultiplier?: number;
   explanation: string;
   difficultyLevel: DifficultyLevel;
   suggestedSearches: string[];
 }
+
+type RecommendedAlternative = {
+  query: string;
+  count: number;
+};
 
 export async function GET(req: Request) {
   try {
@@ -287,7 +295,7 @@ export async function GET(req: Request) {
     const nicheAverageMultiplier = calculateNicheAverageMultiplier(multipliers);
 
     // Filter strict outliers
-    const results = allVideos.filter((v: any) => {
+    const strictResults = allVideos.filter((v: any) => {
       // Filter by date for momentum mode
       if (isMomentumMode && momentumDateThreshold && v.publishedAt) {
         const publishedDate = new Date(v.publishedAt);
@@ -298,8 +306,27 @@ export async function GET(req: Request) {
       return v.outlier;
     });
 
+    let searchType: "strict" | "expanded" = "strict";
+    let results = strictResults;
+
+    // If no strict breakouts, expand to near-miss results (2.5×+, last 90 days)
+    if (strictResults.length === 0) {
+      const days90Ago = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const expandedResults = allVideos.filter((v: any) => {
+        if (v.multiplier < 2.5) return false;
+        if (!v.publishedAt) return false;
+        const publishedDate = new Date(v.publishedAt);
+        return publishedDate >= days90Ago;
+      });
+
+      if (expandedResults.length > 0) {
+        searchType = "expanded";
+        results = expandedResults;
+      }
+    }
+
     // Count breakouts (videos with multiplier >= 3)
-    const breakoutCount = results.filter((v: any) => v.multiplier >= 3).length;
+    const breakoutCount = strictResults.filter((v: any) => v.multiplier >= 3).length;
 
     // Identify Rising Signals: videos with 2.0-2.9× multiplier (early momentum, not full breakouts)
     // These are separate from main results and near-misses
@@ -314,12 +341,12 @@ export async function GET(req: Request) {
         // Must beat channel average
         if (v.multiplier <= 1) return false;
 
-        // For momentum mode, respect date threshold (60 days)
-        if (isMomentumMode && momentumDateThreshold && v.publishedAt) {
-          const publishedDate = new Date(v.publishedAt);
-          if (publishedDate < momentumDateThreshold) {
-            return false;
-          }
+        // Always respect last-60-days freshness for rising signals
+        if (!v.publishedAt) return false;
+        const publishedDate = new Date(v.publishedAt);
+        const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+        if (publishedDate < sixtyDaysAgo) {
+          return false;
         }
 
         // Exclude videos that are already in results (strict outliers)
@@ -457,10 +484,32 @@ export async function GET(req: Request) {
         scannedVideos: allVideos.length,
         averageChannelSize,
         dominantChannelThreshold,
+        averageMultiplier: Number.isFinite(avgMultiplier) ? Number(avgMultiplier.toFixed(2)) : undefined,
+        topMultiplier: Number.isFinite(maxMultiplier) ? Number(maxMultiplier.toFixed(2)) : undefined,
         explanation,
         difficultyLevel,
         suggestedSearches: suggestedSearches.slice(0, 3),
       };
+    }
+
+    // Related active niches from KV cache (fallback to top trending)
+    let recommendedAlternatives: RecommendedAlternative[] = [];
+    if (breakoutCount === 0) {
+      try {
+        const cached = await kv.get("active_niches");
+        const activeNiches = Array.isArray(cached) ? cached as RecommendedAlternative[] : [];
+        const lowerQuery = trimmedQuery.toLowerCase();
+        const related = activeNiches.filter((n) =>
+          n.query.toLowerCase().includes(lowerQuery) || lowerQuery.includes(n.query.toLowerCase())
+        );
+        const source = related.length > 0 ? related : activeNiches;
+        recommendedAlternatives = source
+          .slice()
+          .sort((a, b) => (b.count || 0) - (a.count || 0))
+          .slice(0, 3);
+      } catch {
+        // Ignore KV errors and keep empty list
+      }
     }
 
     // Detect near-misses if strict results are empty
@@ -626,6 +675,19 @@ export async function GET(req: Request) {
     // Return results with nearMisses, risingSignals, and/or nicheAnalysis if present
     const response: any = {
       results: resultsWithMetadata,
+      searchType,
+      message:
+        searchType === "expanded"
+          ? "No strict breakouts found. Showing expanded results (2.5×+, 90 days)."
+          : undefined,
+      strict: {
+        minMultiplier: 3.0,
+        maxDays: 60,
+      },
+      expanded: {
+        minMultiplier: 2.5,
+        maxDays: 90,
+      },
     };
 
     // Include near-misses if present
@@ -641,6 +703,9 @@ export async function GET(req: Request) {
     // Include niche analysis when no breakouts found (provides intelligence about why)
     if (nicheAnalysis) {
       response.nicheAnalysis = nicheAnalysis;
+    }
+    if (recommendedAlternatives.length > 0) {
+      response.recommendedAlternatives = recommendedAlternatives;
     }
 
     const jsonResponse = NextResponse.json(response);
