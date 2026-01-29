@@ -76,7 +76,16 @@ export async function GET(req: Request) {
     // Use per-user when authenticated, otherwise per-IP. Upgrade to KV/DB for multi-instance.
     // Only primary searches should count toward the limit (avoid background fetches).
     let rateLimitHeaders: Record<string, string> | null = null;
-    const { userId } = await auth();
+    let userId: string | null = null;
+    try {
+      const authResult = await auth();
+      userId = authResult.userId ?? null;
+      console.log(`[Search API] Path: ${req.url} | UserID: ${userId ?? "Guest"}`);
+    } catch {
+      // Allow public searches even if Clerk auth fails or is misconfigured
+      userId = null;
+      console.log(`[Search API] Path: ${req.url} | UserID: Guest`);
+    }
     const scope = url.searchParams.get("rateLimitScope") || "primary";
     const shouldRateLimit = scope === "primary";
     const baseKey = userId ? `user:${userId}` : `ip:${getClientIp(req)}`;
