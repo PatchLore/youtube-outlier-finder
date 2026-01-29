@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthButton } from "./components/AuthButton";
@@ -50,6 +51,7 @@ export default function RootLayout({
           <AuthButton />
           <main className="flex-1">{children}</main>
           <Footer />
+          <Analytics />
         </body>
       </html>
     </ClerkProvider>
