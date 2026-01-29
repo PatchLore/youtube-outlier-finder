@@ -670,6 +670,7 @@ export function HomeClient() {
     setRecommendedAlternatives([]);
 
     try {
+      // Search API is DB + KV only; no YouTube API calls in user requests
       const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}&mode=${searchMode || "momentum"}`);
 
       if (!res.ok) {

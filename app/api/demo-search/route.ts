@@ -3,9 +3,8 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// This route intentionally does NOT call the YouTube API.
-// It returns a static demo payload so new users can always
-// see a successful "breakout" state, even if quota is exhausted.
+// User-triggered: no YouTube API. Static demo payload only.
+// New users see a successful "breakout" state without any external API calls.
 
 export async function GET() {
   const query = "Faceless history shorts";

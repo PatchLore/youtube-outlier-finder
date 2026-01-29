@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// User-triggered: no YouTube API. Returns static suggested terms only.
 export async function GET() {
   const suggested = [
     { term: "AI Agents", score: 5 },
