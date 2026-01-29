@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { getUserPlan, isPro, type UserPlan } from "@/lib/auth";
+import { subscribeToWaitlist } from "@/app/actions/subscribe";
 import { MarketIntelligenceReport } from "./MarketIntelligenceReport";
 
 type OutlierResult = {
@@ -419,6 +420,8 @@ export function HomeClient() {
   const [viewFloor, setViewFloor] = useState<ViewFloor>(">=1k");
   const [sortBy, setSortBy] = useState<SortOption>("multiplier");
   const [searchMode, setSearchMode] = useState<SearchMode>("momentum");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
 
   // Get user and calculate plan
   const { user, isLoaded } = useUser();
@@ -755,6 +758,18 @@ export function HomeClient() {
     setQuery(exampleQuery);
     // Trigger search directly with the provided term
     performSearch(exampleQuery);
+  }
+
+  async function handleSubscribe(formData: FormData) {
+    setIsSubmitting(true);
+    setMessage("");
+    const result = await subscribeToWaitlist(formData);
+    setIsSubmitting(false);
+    if (result.success) {
+      setMessage("You're on the list! Check your inbox. 🚀");
+    } else {
+      setMessage(result.error || "Error joining list.");
+    }
   }
 
   async function runDemoSearch() {
@@ -2648,25 +2663,34 @@ export function HomeClient() {
                 Get breakout YouTube ideas from small channels before they go mainstream.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 items-center">
+            <form
+              action={handleSubscribe}
+              className="flex flex-col sm:flex-row gap-3 items-center"
+            >
               <input
                 type="email"
-                disabled
+                name="email"
+                required
                 placeholder="you@example.com"
-                className="w-full rounded-md bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs sm:text-sm text-neutral-400 placeholder:text-neutral-600 cursor-not-allowed"
+                className="w-full rounded-md bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs sm:text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
               />
               <button
-                type="button"
-                disabled
+                type="submit"
+                disabled={isSubmitting}
                 className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl text-xs sm:text-sm font-semibold px-4 py-2 text-white transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed"
                 style={{
                   background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
                   boxShadow: "0 0 30px rgba(168, 85, 247, 0.4)"
                 }}
               >
-                Join the waitlist
+                {isSubmitting ? "Joining..." : "Join the waitlist"}
               </button>
-            </div>
+            </form>
+            {message && (
+              <p className={`text-sm ${message.includes("inbox") ? "text-green-400" : "text-amber-400"}`}>
+                {message}
+              </p>
+            )}
             <p className="text-[0.7rem] sm:text-xs text-neutral-500">
               No spam. Launching soon.
             </p>
