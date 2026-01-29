@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { kv } from "@vercel/kv";
+import { Redis } from "@upstash/redis";
 import { calculateViralityMultiplier, calculateViewsPerDay, calculateAverageLikeRatio, calculateNicheAverageMultiplier, classifyOutlier, isOutlierVideo, type OutlierOptions } from "@/lib/outlier";
 
 export const runtime = "nodejs";
@@ -12,6 +13,14 @@ const MAX_QUERY_LENGTH = 100;
 
 // In-memory rate limit store (per instance). Replace with durable store in production.
 const rateLimitStore = new Map<string, { count: number; windowStart: number }>();
+const redis =
+  (() => {
+    try {
+      return Redis.fromEnv();
+    } catch {
+      return null;
+    }
+  })();
 
 async function fetchWithTimeout(url: string, timeoutMs: number) {
   const controller = new AbortController();
@@ -95,41 +104,77 @@ export async function GET(req: Request) {
 
     if (shouldRateLimit) {
       try {
-        const existing = rateLimitStore.get(rateLimitKey);
-        let currentCount = 1;
+        if (redis) {
+          const redisKey = `ratelimit:${rateLimitKey}`;
+          const currentCount = await redis.incr(redisKey);
+          if (currentCount === 1) {
+            await redis.expire(redisKey, Math.ceil(RATE_LIMIT_WINDOW_MS / 1000));
+          }
 
-        if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
-          rateLimitStore.set(rateLimitKey, { count: 1, windowStart: now });
-        } else if (existing.count >= RATE_LIMIT_MAX) {
-          const remainingSeconds = Math.max(
-            0,
-            Math.ceil((RATE_LIMIT_WINDOW_MS - (now - existing.windowStart)) / 1000)
-          );
+          if (currentCount > RATE_LIMIT_MAX) {
+            const remainingSeconds = Math.max(
+              0,
+              Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)
+            );
+            rateLimitHeaders = {
+              "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+              "X-RateLimit-Remaining": "0",
+              "Retry-After": String(remainingSeconds),
+            };
+            console.log(
+              `[RateLimit] ${baseKey} | Count: ${currentCount}/${RATE_LIMIT_MAX} | Trigger: ${scope} | BLOCKED`
+            );
+            return NextResponse.json(
+              { error: "Too many requests. Please wait a minute and try again." },
+              { status: 429, headers: rateLimitHeaders }
+            );
+          }
+
+          const remaining = Math.max(0, RATE_LIMIT_MAX - currentCount);
           rateLimitHeaders = {
             "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
-            "X-RateLimit-Remaining": "0",
-            "Retry-After": String(remainingSeconds),
+            "X-RateLimit-Remaining": String(remaining),
           };
           console.log(
-            `[RateLimit] ${baseKey} | Count: ${existing.count}/${RATE_LIMIT_MAX} | Trigger: ${scope} | BLOCKED`
-          );
-          return NextResponse.json(
-            { error: "Too many requests. Please wait a minute and try again." },
-            { status: 429, headers: rateLimitHeaders }
+            `[RateLimit] ${baseKey} | Count: ${currentCount}/${RATE_LIMIT_MAX} | Trigger: ${scope}`
           );
         } else {
-          existing.count += 1;
-          currentCount = existing.count;
-        }
+          const existing = rateLimitStore.get(rateLimitKey);
+          let currentCount = 1;
 
-        const remaining = Math.max(0, RATE_LIMIT_MAX - currentCount);
-        rateLimitHeaders = {
-          "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
-          "X-RateLimit-Remaining": String(remaining),
-        };
-        console.log(
-          `[RateLimit] ${baseKey} | Count: ${currentCount}/${RATE_LIMIT_MAX} | Trigger: ${scope}`
-        );
+          if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
+            rateLimitStore.set(rateLimitKey, { count: 1, windowStart: now });
+          } else if (existing.count >= RATE_LIMIT_MAX) {
+            const remainingSeconds = Math.max(
+              0,
+              Math.ceil((RATE_LIMIT_WINDOW_MS - (now - existing.windowStart)) / 1000)
+            );
+            rateLimitHeaders = {
+              "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+              "X-RateLimit-Remaining": "0",
+              "Retry-After": String(remainingSeconds),
+            };
+            console.log(
+              `[RateLimit] ${baseKey} | Count: ${existing.count}/${RATE_LIMIT_MAX} | Trigger: ${scope} | BLOCKED`
+            );
+            return NextResponse.json(
+              { error: "Too many requests. Please wait a minute and try again." },
+              { status: 429, headers: rateLimitHeaders }
+            );
+          } else {
+            existing.count += 1;
+            currentCount = existing.count;
+          }
+
+          const remaining = Math.max(0, RATE_LIMIT_MAX - currentCount);
+          rateLimitHeaders = {
+            "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+            "X-RateLimit-Remaining": String(remaining),
+          };
+          console.log(
+            `[RateLimit] ${baseKey} | Count: ${currentCount}/${RATE_LIMIT_MAX} | Trigger: ${scope}`
+          );
+        }
       } catch (err) {
         console.warn("[RateLimit] Failed, allowing request:", err);
       }
