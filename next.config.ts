@@ -9,9 +9,19 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
 ];
 
+const apiCorsHeaders = [
+  { key: "Access-Control-Allow-Origin", value: "https://www.outlieryt.com" },
+  { key: "Access-Control-Allow-Methods", value: "GET,POST,OPTIONS" },
+  { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization" },
+];
+
 const nextConfig: NextConfig = {
   async headers() {
     return [
+      {
+        source: "/api/(.*)",
+        headers: apiCorsHeaders,
+      },
       {
         source: "/(.*)",
         headers: securityHeaders,

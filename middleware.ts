@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 // 1. Explicitly define all public paths
 const isPublicRoute = createRouteMatcher([
   "/",
+  "/pricing",
   "/api/search(.*)",
   "/api/demo-search(.*)",
   "/api/suggested-searches(.*)",
@@ -12,6 +13,7 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
+  console.log("Pathname:", req.nextUrl.pathname);
   const { pathname } = req.nextUrl;
 
   // 2. ABSOLUTE BYPASS: If the request is for our public APIs, skip Clerk entirely
