@@ -1448,8 +1448,21 @@ export function HomeClient() {
           </div>
         )}
 
+        {hasSearched && (
+          <div className="results-container">
+            {loading && (
+              <div className="max-w-2xl mx-auto mb-6 p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg text-center text-neutral-400">
+                Searching for outliers...
+              </div>
+            )}
+            {error && (
+              <div className="max-w-2xl mx-auto mb-6 p-4 bg-red-900/20 border border-red-500/30 rounded-lg text-red-200 text-sm">
+                {error}
+              </div>
+            )}
+
         {/* Soft Landing: Near-miss results */}
-        {hasSearched && !loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
+        {!loading && !error && results.length === 0 && nearMisses.length > 0 && !dismissedSoftLanding && !showNearMisses && (
           <div className="max-w-3xl mx-auto mb-6 p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg">
             <div className="space-y-4">
               <div className="text-center space-y-2">
@@ -1541,7 +1554,7 @@ export function HomeClient() {
         )}
 
         {/* Search Refinement Hint - Show when strict results === 0 and query needs refinement */}
-        {hasSearched && !loading && !error && results.length === 0 && query.trim() !== "" && needsRefinement(query) && (
+        {!loading && !error && results.length === 0 && query.trim() !== "" && needsRefinement(query) && (
           <div className="max-w-2xl mx-auto">
             <div className="p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
               <div className="space-y-3">
@@ -1565,7 +1578,7 @@ export function HomeClient() {
           </div>
         )}
 
-        {hasSearched && !loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
+        {!loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
           <div className="max-w-2xl mx-auto space-y-4">
             {/* Market Heat Check Card - Shows niche intelligence when no breakouts found */}
             {nicheAnalysis && (
@@ -2588,6 +2601,9 @@ export function HomeClient() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
           </div>
         )}
 
