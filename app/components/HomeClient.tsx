@@ -348,8 +348,8 @@ type AdjacentOpportunity = {
 };
 
 type SuggestedSearch = {
-  query: string;
-  count: number;
+  term: string;
+  score: number;
 };
 
 type RecommendedAlternative = {
@@ -1363,8 +1363,8 @@ export function HomeClient() {
             </span>
             {(suggestedSearches.length > 0
               ? suggestedSearches.map((s) => ({
-                  label: s.query,
-                  count: s.count,
+                  label: s.term,
+                  count: s.score,
                 }))
               : [
                   { label: "AI Agents", count: 5 },
