@@ -39,9 +39,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
   
-  // Validate key format (must start with sk_test_ or sk_live_)
-  if (!stripeSecretKey.startsWith("sk_test_") && !stripeSecretKey.startsWith("sk_live_")) {
-    console.error("[Webhook] Invalid STRIPE_SECRET_KEY format. Key must start with 'sk_test_' or 'sk_live_'");
+  // Validate key format (must start with sk_test_, sk_live_, rk_test_, or rk_live_)
+  if (
+    !stripeSecretKey.startsWith("sk_test_") &&
+    !stripeSecretKey.startsWith("sk_live_") &&
+    !stripeSecretKey.startsWith("rk_test_") &&
+    !stripeSecretKey.startsWith("rk_live_")
+  ) {
+    console.error("[Webhook] Invalid STRIPE_SECRET_KEY format. Key must start with 'sk_test_', 'sk_live_', 'rk_test_', or 'rk_live_'");
     return NextResponse.json(
       { error: "Invalid Stripe secret key format" },
       { status: 500 }
