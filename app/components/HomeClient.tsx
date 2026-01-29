@@ -625,6 +625,9 @@ export function HomeClient() {
       return; // Silently return if empty (no error for programmatic calls)
     }
 
+    setHasSearched(true); // Show Results section immediately
+    setHasSubmittedSearch(true);
+
     const previousState = {
       results,
       nearMisses,
@@ -648,8 +651,6 @@ export function HomeClient() {
     setValidationError(null);
     setRateLimitMessage(null);
     setShowQuotaFallbackNotice(false);
-    setHasSearched(true); // Mark that a search has been executed
-    setHasSubmittedSearch(true);
     // Clear previous UI state before fetching new results
     setResults([]);
     setNearMisses([]); // Clear nearMisses on new search
@@ -757,6 +758,8 @@ export function HomeClient() {
   }
 
   async function runDemoSearch() {
+    setHasSearched(true); // Show Results section immediately
+    setHasSubmittedSearch(true);
     setIsDemoMode(true);
 
     // Mirror core search UI behavior so the demo feels identical
@@ -783,10 +786,6 @@ export function HomeClient() {
       setError(null);
       setValidationError(null);
       setRateLimitMessage(null);
-
-      // Treat demo as a full search execution
-      setHasSearched(true);
-      setHasSubmittedSearch(true);
 
       // Clear previous UI state before loading demo results
       setResults([]);
