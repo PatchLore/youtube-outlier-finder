@@ -198,8 +198,12 @@ export async function GET(req: Request) {
     if (!searchRes.ok) {
       // Quota or upstream errors should be sanitized for clients.
       const safeMessage = "Search temporarily unavailable. Please try again later.";
-      const statusCode = searchRes.status >= 500 ? 502 : searchRes.status;
-      return NextResponse.json({ error: safeMessage }, { status: statusCode });
+      const errorBody = await searchRes.text().catch(() => "");
+      console.error("[Search API] YouTube search error:", {
+        status: searchRes.status,
+        body: errorBody.slice(0, 500),
+      });
+      return NextResponse.json({ error: safeMessage }, { status: 502 });
     }
 
     const searchData = await searchRes.json();
@@ -239,8 +243,12 @@ export async function GET(req: Request) {
     if (!videoRes.ok) {
       // Quota or upstream errors should be sanitized for clients.
       const safeMessage = "Search temporarily unavailable. Please try again later.";
-      const statusCode = videoRes.status >= 500 ? 502 : videoRes.status;
-      return NextResponse.json({ error: safeMessage }, { status: statusCode });
+      const errorBody = await videoRes.text().catch(() => "");
+      console.error("[Search API] YouTube video stats error:", {
+        status: videoRes.status,
+        body: errorBody.slice(0, 500),
+      });
+      return NextResponse.json({ error: safeMessage }, { status: 502 });
     }
 
     const videoData = await videoRes.json();
@@ -262,8 +270,12 @@ export async function GET(req: Request) {
     if (!channelRes.ok) {
       // Quota or upstream errors should be sanitized for clients.
       const safeMessage = "Search temporarily unavailable. Please try again later.";
-      const statusCode = channelRes.status >= 500 ? 502 : channelRes.status;
-      return NextResponse.json({ error: safeMessage }, { status: statusCode });
+      const errorBody = await channelRes.text().catch(() => "");
+      console.error("[Search API] YouTube channel stats error:", {
+        status: channelRes.status,
+        body: errorBody.slice(0, 500),
+      });
+      return NextResponse.json({ error: safeMessage }, { status: 502 });
     }
 
     const channelData = await channelRes.json();
