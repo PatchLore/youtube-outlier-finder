@@ -3,6 +3,7 @@ import { getPool, query } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
 
 const NICHES: { name: string; priority: number }[] = [
   { name: "Finance", priority: 3 },
@@ -117,6 +118,9 @@ function generateSeedKeywords(): { keyword: string; niche: string; priority: num
   return entries.slice(0, 300);
 }
 
+/** Max rows per INSERT to avoid huge SQL string / param list (Node/Postgres limits). */
+const BATCH_SIZE = 100;
+
 export async function POST(req: Request) {
   try {
     const pool = getPool();
@@ -134,26 +138,43 @@ export async function POST(req: Request) {
     }
 
     const keywords = generateSeedKeywords();
-    const keywordList = keywords.map((r) => r.keyword);
-    const nicheList = keywords.map((r) => r.niche);
-    const priorityList = keywords.map((r) => r.priority);
+    console.log("[Seed] keywords length:", keywords.length);
+    console.log("[Seed] first 5 items:", JSON.stringify(keywords.slice(0, 5)));
 
-    const result = await query(
-      `INSERT INTO keywords (keyword, niche, priority)
-       SELECT k, n, p FROM UNNEST($1::text[], $2::text[], $3::smallint[]) AS t(k, n, p)
-       ON CONFLICT (keyword, niche) DO NOTHING`,
-      [keywordList, nicheList, priorityList]
-    );
+    if (keywords.length === 0) {
+      return NextResponse.json({ ok: true, total: 0, inserted: 0, skipped: 0 });
+    }
+
+    // Batched INSERT to avoid huge SQL/params (BATCH_SIZE rows per query)
+    let totalInserted = 0;
+    for (let offset = 0; offset < keywords.length; offset += BATCH_SIZE) {
+      const batch = keywords.slice(offset, offset + BATCH_SIZE);
+      const placeholders = batch
+        .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`)
+        .join(", ");
+      const params = batch.flatMap((r) => [r.keyword, r.niche, r.priority]);
+      const result = await query(
+        `INSERT INTO keywords (keyword, niche, priority)
+         VALUES ${placeholders}
+         ON CONFLICT (keyword) DO NOTHING`,
+        params
+      );
+      totalInserted += result.rowCount ?? 0;
+    }
 
     return NextResponse.json({
       ok: true,
       total: keywords.length,
-      inserted: result.rowCount,
-      skipped: keywords.length - result.rowCount,
+      inserted: totalInserted,
+      skipped: keywords.length - totalInserted,
     });
   } catch (err) {
-    console.error("[Seed Keywords Error]:", err);
+    console.error("[Seed Error Details]:", err);
     const msg = err instanceof Error ? err.message : String(err);
+    const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : undefined;
+    const stack = err instanceof Error ? err.stack : undefined;
+    if (stack) console.error("[Seed Error Stack]:", stack);
+    if (code) console.error("[Seed Error Code]:", code);
     return NextResponse.json(
       { error: "Seed failed", message: msg },
       { status: 500 }
