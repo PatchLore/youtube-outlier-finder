@@ -110,6 +110,7 @@ export type EnrichedVideo = {
   multiplier: number;
   views_per_day: number | null;
   like_ratio: number | null;
+  likes: number | null;
 };
 
 export function buildEnrichedVideos(
@@ -139,6 +140,7 @@ export function buildEnrichedVideos(
       multiplier,
       views_per_day: viewsPerDay,
       like_ratio: likeRatio,
+      likes: views > 0 && likes > 0 ? likes : null,
     };
   });
 }

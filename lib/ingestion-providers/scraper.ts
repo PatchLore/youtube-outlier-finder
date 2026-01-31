@@ -31,6 +31,7 @@ function parseScraperItem(item: any): EnrichedVideo {
     multiplier,
     views_per_day: viewsPerDay,
     like_ratio: likeRatio,
+    likes: views > 0 && likes > 0 ? likes : null,
   };
 }
 

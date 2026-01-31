@@ -16,6 +16,9 @@ Run these in order against your Neon (or any Postgres) database. All statements 
 8. `008_add_keywords_last_ingested_at.sql` (adds `last_ingested_at` for cron 24h cooldown)
 9. `009_add_videos_outlier_score.sql` (adds `outlier_score` for composite score)
 10. `010_create_users.sql` (users table: clerk_user_id, stripe_customer_id, plan for search gating)
+11. `011_add_niche_to_keywords.sql`
+12. `012_add_api_calls_quota_cost_ingestion_jobs.sql` (api_calls, quota_cost for per-call quota tracking)
+13. `013_create_priority_ingestion_queue.sql` (Pro scan request queue)
 
 **Example (psql):**
 
@@ -30,6 +33,9 @@ psql "$DATABASE_URL" -f db/migrations/007_add_keyword_niche_priority.sql
 psql "$DATABASE_URL" -f db/migrations/008_add_keywords_last_ingested_at.sql
 psql "$DATABASE_URL" -f db/migrations/009_add_videos_outlier_score.sql
 psql "$DATABASE_URL" -f db/migrations/010_create_users.sql
+psql "$DATABASE_URL" -f db/migrations/011_add_niche_to_keywords.sql
+psql "$DATABASE_URL" -f db/migrations/012_add_api_calls_quota_cost_ingestion_jobs.sql
+psql "$DATABASE_URL" -f db/migrations/013_create_priority_ingestion_queue.sql
 ```
 
 Or run all in one go (Bash):

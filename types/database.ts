@@ -41,29 +41,54 @@ export interface User {
   updated_at: string;
 }
 
-/** channels table (001_create_channels) */
+/** channels table (001_create_channels + optional last_updated_at, update_priority) */
 export interface Channel {
   id: number;
   youtube_channel_id: string;
-  title: string | null;
+  title: string;
   subscriber_count: number;
   created_at: string;
   updated_at: string;
+  last_updated_at?: string;
+  update_priority?: number;
 }
 
 /** ingestion_jobs table (005, 006) – for typed job inserts/updates */
 export interface IngestionJob {
   id: number;
-  status: string;
-  job_type: string | null;
-  query: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-  error_message: string | null;
-  metadata: unknown;
+  status: "pending" | "running" | "completed" | "failed";
+  job_type?: string;
+  query?: string;
+  started_at?: string;
+  completed_at?: string;
+  error_message?: string;
+  metadata?: unknown;
+  quota_units_used?: number;
+  quota_cost?: number;
+  api_calls?: number;
   created_at: string;
   updated_at: string;
-  quota_units_used: number;
+}
+
+/** video_stats table – time-series stats per video (video_id references videos.id integer) */
+export interface VideoStats {
+  id: number;
+  video_id: number;
+  views: number;
+  likes?: number;
+  recorded_at: string;
+  days_since_publish: number;
+}
+
+/** priority_ingestion_queue table – queue for keyword ingestion by priority */
+export interface PriorityQueue {
+  id: number;
+  keyword: string;
+  requested_by?: string;
+  requested_at: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  processed_at?: string;
+  priority: number;
 }
 
 /**

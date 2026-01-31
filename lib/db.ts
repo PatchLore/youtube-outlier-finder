@@ -48,4 +48,13 @@ export async function query<T = unknown>(
   return { rows: (result.rows as T[]) ?? [], rowCount: result.rowCount ?? 0 };
 }
 
-export type { Video, Keyword, User, Channel, IngestionJob, VideoSearchRow } from "@/types/database";
+export type {
+  Video,
+  Keyword,
+  User,
+  Channel,
+  IngestionJob,
+  VideoStats,
+  PriorityQueue,
+  VideoSearchRow,
+} from "@/types/database";

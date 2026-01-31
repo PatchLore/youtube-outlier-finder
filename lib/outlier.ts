@@ -144,87 +144,65 @@ export function calculateNicheAverageMultiplier(
 }
 
 /**
- * Composite outlier score for a video. Uses base multiplier, log10 confidence,
- * time-decay (freshness), and channel-size penalty.
+ * Composite outlier score for a video. Uses logarithmic multiplier, log views,
+ * and freshness decay (newer videos boosted).
  *
- * @param views - View count (must be > 0; otherwise returns 0).
- * @param subscribers - Channel subscriber count (hidden/missing treated as 0; denominator uses max(subscribers, 1)).
- * @param publishedAt - Publish date (ISO string, Date, or ms). Optional; if missing, freshness = 1.0.
+ * @param video - Object with views and optional published_at.
+ * @param channel - Object with subscriber_count (denominator for multiplier).
  * @returns Score as a non-negative float; 0 for invalid/edge cases.
  *
  * @remarks
- * **1. Base multiplier**
- *   `base = views / max(subscribers, 1)`
- *   Measures "views per subscriber" (virality). Small channels with many views get a high base.
+ * **1. Freshness decay**
+ *   Newer videos get a boost: 1 day ≈ 1.0x, 30 days ≈ 0.5x, 120 days ≈ 0.25x.
+ *   Formula: ((daysSincePublished + 1) / 30) ^ -0.5. Missing published_at → 1.0x.
  *
- * **2. Log10 confidence**
- *   `confidence = log10(views)` when views >= 1, else 0.
- *   Down-weights very low view counts (e.g. 10 views → 1, 1000 → 3) so scores reflect both
- *   virality and scale. Prevents tiny channels with one viral hit from dominating.
+ * **2. Log multiplier**
+ *   rawMultiplier = views / max(subscriber_count, 1); logMultiplier = log10(rawMultiplier + 1).
+ *   Prevents tiny channels from dominating.
  *
- * **3. Time-decay (freshness)**
- *   Days since publish → multiplier:
- *   - &lt; 7 days:  1.5x (recent content boosted)
- *   - &lt; 30 days: 1.2x
- *   - ≤ 90 days:  1.0x
- *   - &gt; 90 days: 0.7x (older content discounted)
- *   Missing/invalid publishedAt → 1.0x.
- *
- * **4. Channel penalty**
- *   Large channels are penalized so small-channel breakouts rank higher:
- *   - &gt; 1M subs: 0.5x
- *   - &gt; 100k:    0.7x
- *   - else:        1.0x
+ * **3. Log views**
+ *   log10(max(views, 10)) so high absolute view counts matter.
  *
  * **Final formula**
- *   `score = base × confidence × freshness × channelPenalty`
+ *   score = logMultiplier * logViews * freshnessDecay
  */
 export function calculateOutlierScore(
-  views: number,
-  subscribers: number,
-  publishedAt?: string | Date | number | null
+  video: { views: number; published_at?: string | Date | number | null },
+  channel: { subscriber_count?: number | null }
 ): number {
-  const v = Number(views);
-  const subs =
-    subscribers === null || subscribers === undefined || !Number.isFinite(Number(subscribers))
-      ? 0
-      : Math.max(0, Number(subscribers));
+  const views = Number(video?.views ?? 0);
+  const subs = Math.max(0, Number(channel?.subscriber_count ?? 0));
 
-  if (!Number.isFinite(v) || v <= 0) {
+  if (!Number.isFinite(views) || views < 0) {
     return 0;
   }
 
-  const base = v / Math.max(subs, 1);
-
-  let confidence: number;
-  if (v >= 1) {
-    confidence = Math.log10(v);
-    if (!Number.isFinite(confidence) || confidence < 0) confidence = 0;
-  } else {
-    confidence = 0;
-  }
-
-  let freshness = 1.0;
+  const publishedAt = video?.published_at;
+  let daysSincePublished = 0;
   if (publishedAt != null && publishedAt !== "") {
     const date =
       typeof publishedAt === "number"
         ? new Date(publishedAt)
         : new Date(String(publishedAt));
     if (Number.isFinite(date.getTime())) {
-      const now = Date.now();
-      const daysAgo = (now - date.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysAgo < 7) freshness = 1.5;
-      else if (daysAgo < 30) freshness = 1.2;
-      else if (daysAgo <= 90) freshness = 1.0;
-      else freshness = 0.7;
+      daysSincePublished = Math.floor(
+        (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      daysSincePublished = Math.max(0, daysSincePublished);
     }
   }
 
-  let channelPenalty = 1.0;
-  if (subs > 1_000_000) channelPenalty = 0.5;
-  else if (subs > 100_000) channelPenalty = 0.7;
+  const freshnessDecay =
+    daysSincePublished >= 0
+      ? Math.pow((daysSincePublished + 1) / 30, -0.5)
+      : 1.0;
 
-  const score = base * confidence * freshness * channelPenalty;
+  const rawMultiplier = views / Math.max(subs, 1);
+  const logMultiplier = Math.log10(rawMultiplier + 1);
+
+  const logViews = Math.log10(Math.max(views, 10));
+
+  const score = logMultiplier * logViews * freshnessDecay;
   return Number.isFinite(score) && score >= 0 ? score : 0;
 }
 

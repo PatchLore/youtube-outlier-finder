@@ -16,6 +16,7 @@ export type EnrichedVideo = {
   multiplier: number;
   views_per_day: number | null;
   like_ratio: number | null;
+  likes: number | null;
 };
 
 export type SearchResult = {
