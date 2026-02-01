@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 const isPublicRoute = createRouteMatcher([
   "/",
   "/pricing",
+  "/api/health",
   "/api/search(.*)",
   "/api/demo-search(.*)",
   "/api/suggested-searches(.*)",
@@ -21,6 +22,7 @@ export default clerkMiddleware(async (auth, req) => {
 
   // 2. ABSOLUTE BYPASS: Public APIs, webhooks, admin seed – skip Clerk (auth via Bearer CRON_SECRET)
   if (
+    pathname === "/api/health" ||
     pathname.startsWith("/api/search") ||
     pathname.startsWith("/api/demo-search") ||
     pathname.startsWith("/api/suggested-searches") ||
