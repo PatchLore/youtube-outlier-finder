@@ -104,10 +104,16 @@ export type DbSearchResponse = {
     scannedVideos: number;
     averageChannelSize: number;
     dominantChannelThreshold: number;
+    averageMultiplier?: number;
+    topMultiplier?: number;
     explanation: string;
     difficultyLevel: string;
     suggestedSearches: string[];
   };
+  /** Top 10 videos by views when no breakouts (any multiplier) – "Trending (not breakout yet)" */
+  trendingVideos?: OutlierResultShape[];
+  /** True when no rows for this niche (DB empty for niche) */
+  emptyNiche?: boolean;
   recommendedAlternatives?: { query: string; count: number }[];
 };
 
@@ -239,15 +245,38 @@ export async function searchFromDb(
     const avgChannelSize = subs.length ? Math.round(subs.reduce((a, b) => a + b, 0) / subs.length) : 0;
     const sorted = [...subs].sort((a, b) => a - b);
     const dominantThreshold = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+    const mults = withDates.map((r) => r._mult).filter((m) => m > 0);
+    const avgMult = mults.length ? mults.reduce((a, b) => a + b, 0) / mults.length : undefined;
+    const topMult = mults.length ? Math.max(...mults) : undefined;
     nicheAnalysis = {
       nicheStatus: "QUIET",
       scannedVideos: withDates.length,
       averageChannelSize: avgChannelSize,
       dominantChannelThreshold: dominantThreshold,
+      averageMultiplier: avgMult,
+      topMultiplier: topMult,
       explanation: `We have ${withDates.length} video(s) in the database for this niche. None meet the strict breakout threshold (3×+ in last 60 days). Try another keyword or check back after more ingestion.`,
       difficultyLevel: "BEGINNER",
       suggestedSearches: [trimmedQuery, `${trimmedQuery} shorts`].slice(0, 3),
     };
+  }
+
+  // When no breakouts but we have data: top 10 by views (any multiplier) for "Trending (not breakout yet)"
+  let trendingVideos: OutlierResultShape[] | undefined;
+  if (results.length === 0 && withDates.length > 0) {
+    const byViews = [...withDates].sort((a, b) => (b.views ?? 0) - (a.views ?? 0)).slice(0, 10);
+    const multsForTrending = withDates.map((r) => r._mult).filter((m) => m > 0);
+    const nicheAvg = multsForTrending.length ? multsForTrending.reduce((a, b) => a + b, 0) / multsForTrending.length : null;
+    const likeRatiosForTrending = withDates.map((r) => (r.like_ratio != null ? Number(r.like_ratio) : null));
+    const nicheLikeRatio = calculateAverageLikeRatio(likeRatiosForTrending);
+    trendingVideos = byViews.map((r) =>
+      rowToOutlier(r, {
+        nicheAverageMultiplier: nicheAvg,
+        nicheAverageLikeRatio: nicheLikeRatio,
+        breakoutCount: 0,
+        isStrict: false,
+      })
+    );
   }
 
   const resultsLimit = plan === "free" ? FREE_RESULTS_LIMIT : PRO_RESULTS_LIMIT;
@@ -270,6 +299,8 @@ export async function searchFromDb(
   if (cappedNearMisses.length > 0) response.nearMisses = cappedNearMisses;
   if (cappedRisingSignals.length > 0) response.risingSignals = cappedRisingSignals;
   if (nicheAnalysis) response.nicheAnalysis = nicheAnalysis;
+  if (trendingVideos && trendingVideos.length > 0) response.trendingVideos = trendingVideos;
+  if (results.length === 0 && rows.length === 0) response.emptyNiche = true;
 
   return response;
 }

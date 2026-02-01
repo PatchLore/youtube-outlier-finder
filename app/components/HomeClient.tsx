@@ -52,6 +52,13 @@ function getMultiplierBadgeColor(multiplier: number): string {
   return "bg-neutral-700/50 text-neutral-300 border-neutral-600/30";
 }
 
+/** Badge label by multiplier: 3×+ Breakout, 2–3× Warming, <2× Trending */
+function getMultiplierBadgeLabel(multiplier: number): string {
+  if (multiplier >= 3) return "🔥 Breakout";
+  if (multiplier >= 2) return "📈 Warming";
+  return "📊 Trending";
+}
+
 function getConfidenceTier(multiplier: number): string | null {
   if (multiplier >= 50) return "💎 Breakout";
   if (multiplier >= 25) return "🚀 Strong";
@@ -414,6 +421,8 @@ export function HomeClient() {
   const [expandedResults, setExpandedResults] = useState<OutlierResult[]>([]);
   const [showStrictOnly, setShowStrictOnly] = useState(false);
   const [recommendedAlternatives, setRecommendedAlternatives] = useState<RecommendedAlternative[]>([]);
+  const [trendingVideos, setTrendingVideos] = useState<OutlierResult[]>([]);
+  const [emptyNiche, setEmptyNiche] = useState(false);
 
   // Default to higher cap for Pro users to unlock benefits immediately
   const [subscriberCap, setSubscriberCap] = useState<SubscriberCap>("<50k");
@@ -636,6 +645,8 @@ export function HomeClient() {
       nearMisses,
       nicheAnalysis,
       risingSignals,
+      trendingVideos,
+      emptyNiche,
       adjacentOpps,
       showRisingSignals,
       showNearMisses,
@@ -659,6 +670,8 @@ export function HomeClient() {
     setNearMisses([]); // Clear nearMisses on new search
     setNicheAnalysis(null); // Clear niche analysis on new search
     setRisingSignals([]); // Clear rising signals on new search
+    setTrendingVideos([]);
+    setEmptyNiche(false);
     setAdjacentOpps([]); // Clear adjacent opportunities on new search
     setShowRisingSignals(false); // Reset rising signals toggle
     setShowNearMisses(false); // Reset opt-in state
@@ -681,6 +694,8 @@ export function HomeClient() {
           setNearMisses(previousState.nearMisses);
           setNicheAnalysis(previousState.nicheAnalysis);
           setRisingSignals(previousState.risingSignals);
+          setTrendingVideos(previousState.trendingVideos);
+          setEmptyNiche(previousState.emptyNiche);
           setAdjacentOpps(previousState.adjacentOpps);
           setShowRisingSignals(previousState.showRisingSignals);
           setShowNearMisses(previousState.showNearMisses);
@@ -714,6 +729,8 @@ export function HomeClient() {
         setNearMisses([]);
         setNicheAnalysis(null);
         setRisingSignals([]);
+        setTrendingVideos([]);
+        setEmptyNiche(false);
         setSearchType(null);
         setExpandedResults([]);
       } else {
@@ -724,6 +741,8 @@ export function HomeClient() {
         setSearchType((data.searchType || null) as "strict" | "expanded" | null);
         setExpandedResults((data.searchType === "expanded" ? data.results : []) as OutlierResult[]);
         setRecommendedAlternatives((data.recommendedAlternatives || []) as RecommendedAlternative[]);
+        setTrendingVideos((data.trendingVideos || []) as OutlierResult[]);
+        setEmptyNiche(Boolean(data.emptyNiche));
       }
 
       setResults(newResults);
@@ -784,6 +803,8 @@ export function HomeClient() {
       nearMisses,
       nicheAnalysis,
       risingSignals,
+      trendingVideos,
+      emptyNiche,
       adjacentOpps,
       showRisingSignals,
       showNearMisses,
@@ -808,6 +829,8 @@ export function HomeClient() {
       setNearMisses([]);
       setNicheAnalysis(null);
       setRisingSignals([]);
+      setTrendingVideos([]);
+      setEmptyNiche(false);
       setAdjacentOpps([]);
       setShowRisingSignals(false);
       setShowNearMisses(false);
@@ -826,6 +849,8 @@ export function HomeClient() {
         setNearMisses(previousState.nearMisses);
         setNicheAnalysis(previousState.nicheAnalysis);
         setRisingSignals(previousState.risingSignals);
+        setTrendingVideos(previousState.trendingVideos);
+        setEmptyNiche(previousState.emptyNiche);
         setAdjacentOpps(previousState.adjacentOpps);
         setShowRisingSignals(previousState.showRisingSignals);
         setShowNearMisses(previousState.showNearMisses);
@@ -1627,6 +1652,114 @@ export function HomeClient() {
 
         {!loading && !error && results.length === 0 && query.trim() !== "" && (nearMisses.length === 0 || dismissedSoftLanding || showNearMisses) && (
           <div className="max-w-2xl mx-auto space-y-4">
+            {/* Empty niche: data warming up + email capture */}
+            {emptyNiche && (
+              <div className="p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg space-y-4">
+                <h3 className="text-lg font-semibold text-white">
+                  Data warming up for &quot;{query}&quot;…
+                </h3>
+                <p className="text-sm text-neutral-400">
+                  We&apos;re ingesting this niche. No breakouts yet—check back soon or try a related search below.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {[query, `${query} shorts`, `${query} tutorial`].slice(0, 3).map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => handleExampleSearch(suggestion)}
+                      className="px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-md text-xs text-neutral-300 hover:bg-neutral-700 hover:border-neutral-600 transition-colors"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+                <div className="pt-4 border-t border-neutral-800">
+                  <p className="text-sm font-medium text-neutral-200 mb-2">Notify me when first breakout hits</p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSubscribe(new FormData(e.currentTarget));
+                    }}
+                    className="flex flex-col sm:flex-row gap-2"
+                  >
+                    <input
+                      type="email"
+                      name="email"
+                      placeholder="you@example.com"
+                      className="flex-1 px-3 py-2 rounded-lg bg-neutral-800 border border-neutral-700 text-white text-sm placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-50 transition-colors"
+                    >
+                      {isSubmitting ? "Sending…" : "Notify me"}
+                    </button>
+                  </form>
+                  {message && <p className="mt-2 text-sm text-neutral-400">{message}</p>}
+                </div>
+              </div>
+            )}
+
+            {/* No breakouts but we have data: Scanning + trending top 10 + Pro CTA */}
+            {!emptyNiche && (nicheAnalysis || trendingVideos.length > 0) && (
+              <>
+                <div className="p-4 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+                  <h3 className="text-base font-semibold text-white mb-1">
+                    Scanning &quot;{query}&quot;…
+                  </h3>
+                  <p className="text-xs text-neutral-400">Last update: recently</p>
+                </div>
+                {trendingVideos.length > 0 && (
+                  <div className="p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg space-y-3">
+                    <h4 className="text-sm font-semibold text-neutral-200">
+                      Trending (not breakout yet)
+                    </h4>
+                    <p className="text-xs text-neutral-400">
+                      Top videos by views in this niche. None have hit the 3× breakout threshold yet.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {trendingVideos.slice(0, 10).map((video) => (
+                        <a
+                          key={video.id}
+                          href={`https://www.youtube.com/watch?v=${video.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex gap-2 bg-neutral-950 border border-neutral-800 rounded-lg p-2 hover:border-neutral-600 transition-colors"
+                        >
+                          <div className="w-24 h-14 bg-neutral-800 rounded overflow-hidden flex-shrink-0">
+                            <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" />
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <p className="text-xs font-medium text-neutral-200 line-clamp-2">{video.title}</p>
+                            <p className="text-[0.7rem] text-neutral-400 truncate">{video.channelTitle}</p>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[0.7rem] font-semibold border border-neutral-600 bg-neutral-800/50 text-neutral-300">
+                              {getMultiplierBadgeLabel(video.multiplier)} · {video.multiplier.toFixed(1)}×
+                            </span>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                    {!userIsPro && (
+                      <div className="pt-3 border-t border-neutral-800">
+                        <button
+                          type="button"
+                          onClick={handleCheckout}
+                          className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+                          style={{
+                            background: "linear-gradient(135deg, #a855f7 0%, #ec4899 100%)",
+                            boxShadow: "0 0 20px rgba(168, 85, 247, 0.3)"
+                          }}
+                        >
+                          Get Pro to see breakouts instantly
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
             {/* Market Heat Check Card - Shows niche intelligence when no breakouts found */}
             {nicheAnalysis && (
               <div className="p-5 bg-neutral-900/50 border border-neutral-800 rounded-lg backdrop-blur-sm">
@@ -1767,7 +1900,7 @@ export function HomeClient() {
                                     {video.channelTitle}
                                   </p>
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[0.7rem] font-semibold border border-yellow-500/40 bg-yellow-500/10 text-yellow-200">
-                                    {video.multiplier.toFixed(1)}× — Strong, but not an outlier
+                                    {getMultiplierBadgeLabel(video.multiplier)} · {video.multiplier.toFixed(1)}×
                                   </span>
                                 </div>
                               </a>
@@ -2300,14 +2433,12 @@ export function HomeClient() {
                               </div>
                             </div>
                           );
-                        } else if (getConfidenceTier(video.multiplier)) {
-                          return (
-                            <span className="text-xs text-neutral-400">
-                              {getConfidenceTier(video.multiplier)}
-                            </span>
-                          );
                         }
-                        return null;
+                        return (
+                          <span className="text-xs text-neutral-400">
+                            {getMultiplierBadgeLabel(video.multiplier)}
+                          </span>
+                        );
                       })()}
                     </div>
                   </div>
