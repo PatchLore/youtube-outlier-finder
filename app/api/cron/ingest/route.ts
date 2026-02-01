@@ -325,7 +325,16 @@ async function persistEnriched(
 }
 
 
+/** Cron and GitHub Actions call POST; GET supported for manual testing. */
+export async function POST(req: Request) {
+  return ingestHandler(req);
+}
+
 export async function GET(req: Request) {
+  return ingestHandler(req);
+}
+
+async function ingestHandler(req: Request) {
   try {
     assertCron(req);
   } catch (err) {
